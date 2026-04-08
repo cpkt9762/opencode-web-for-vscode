@@ -1,4 +1,4 @@
-import type * as vscode from "vscode"
+import * as vscode from "vscode"
 
 export const VIEW_ID = "opencode-web.chatView"
 
@@ -142,7 +142,7 @@ function page(url: string, state: State) {
       </div>
     </div>
   </div>
-  <iframe id="opencode-frame" src="${src}" title="OpenCode" style="width:100%;height:100vh;border:none;visibility:hidden;"></iframe>
+  <iframe id="opencode-frame" src="${src}" title="OpenCode" allow="clipboard-read; clipboard-write; autoplay" style="width:100%;height:100vh;border:none;visibility:hidden;"></iframe>
   <script nonce="${n}">
     const vscode = acquireVsCodeApi()
     const body = document.body
@@ -199,6 +199,20 @@ function page(url: string, state: State) {
       }
       if (event.data?.type === "opencode-web.session-changed") {
         vscode.postMessage({ type: "opencode-web.session-changed", sessionId: event.data.sessionId })
+        return
+      }
+      if (event.data?.type === "opencode-web.clipboard-write") {
+        vscode.postMessage({ type: "opencode-web.clipboard-write", text: event.data.text })
+        return
+      }
+      if (event.data?.type === "opencode-web.clipboard-read") {
+        vscode.postMessage({ type: "opencode-web.clipboard-read" })
+        return
+      }
+      if (event.data?.type === "opencode-web.clipboard-text") {
+        if (frame instanceof HTMLIFrameElement && frame.contentWindow) {
+          frame.contentWindow.postMessage(event.data, "*")
+        }
         return
       }
       if (event.data?.type?.startsWith("opencode-web.")) {
@@ -268,6 +282,8 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
     this.view = view
     view.webview.options = {
       enableScripts: true,
+      enableForms: true,
+      enableCommandUris: true,
       localResourceRoots: [],
     }
     this.watch()
@@ -336,6 +352,19 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
         const sid = (input as { sessionId?: string }).sessionId
         if (this.log) this.log(`[SPA] session-changed: ${sid ?? "none"}`)
         if (this.onSession) this.onSession(sid ?? null)
+        return
+      }
+      if (type === "opencode-web.clipboard-write") {
+        const text = (input as { text?: string }).text ?? ""
+        void vscode.env.clipboard.writeText(text)
+        if (this.log) this.log(`[clipboard] write ${text.length} chars`)
+        return
+      }
+      if (type === "opencode-web.clipboard-read") {
+        void vscode.env.clipboard.readText().then((text) => {
+          if (this.log) this.log(`[clipboard] read ${text.length} chars`)
+          this.post("opencode-web.clipboard-text", { text })
+        })
         return
       }
       if (type === MSG.retry) {

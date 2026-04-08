@@ -8,5 +8,5 @@ dist/
 bun.lock
 out/
 .vscode-test/
-spa/
+/spa/
 test-results/

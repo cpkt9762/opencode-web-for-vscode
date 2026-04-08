@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type * as vscode from "vscode"
+
+vi.mock("vscode", () => ({
+  env: { clipboard: { readText: vi.fn(() => Promise.resolve("")), writeText: vi.fn() } },
+}))
+
 import { OpenCodeWebviewProvider } from "./provider.js"
 
 function view() {
@@ -20,6 +25,8 @@ describe("OpenCodeWebviewProvider", () => {
 
     expect(item.webview.options).toEqual({
       enableScripts: true,
+      enableForms: true,
+      enableCommandUris: true,
       localResourceRoots: [],
     })
   })
@@ -40,6 +47,28 @@ describe("OpenCodeWebviewProvider", () => {
     provider.resolveWebviewView(item)
 
     expect(item.webview.html).toContain('iframe id="opencode-frame" src="http://localhost:4096"')
+  })
+
+  it("iframe grants clipboard permissions for SPA", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+
+    expect(item.webview.html).toContain("clipboard-read")
+    expect(item.webview.html).toContain("clipboard-write")
+  })
+
+  it("webview options enable forms for clipboard support", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+
+    expect(item.webview.options).toMatchObject({
+      enableScripts: true,
+      enableForms: true,
+    })
   })
 
   it("renders a nonce on the inline script", () => {
