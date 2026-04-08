@@ -1,0 +1,282 @@
+{
+  "name": "opencode-web-for-vscode",
+  "displayName": "OpenCode Web",
+  "description": "Full-featured VSCode extension for OpenCode AI coding agent",
+  "publisher": "opencode",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anomalyco/opencode",
+    "directory": "opencode-web-for-vscode"
+  },
+  "license": "MIT",
+  "icon": "resources/icons/opencode.png",
+  "galleryBanner": {
+    "color": "#000000",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "opencode",
+    "ai",
+    "coding-assistant",
+    "chat",
+    "vscode"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opencode-web.sendCode",
+        "title": "OpenCode: Send Selected Code"
+      },
+      {
+        "command": "opencode-web.newSession",
+        "title": "OpenCode: New Session"
+      },
+      {
+        "command": "opencode-web.openChat",
+        "title": "OpenCode: Open Chat"
+      },
+      {
+        "command": "opencode-web.openInBrowser",
+        "title": "OpenCode: Open in Browser"
+      },
+      {
+        "command": "opencode-web.restart",
+        "title": "OpenCode: Restart Server"
+      },
+      {
+        "command": "opencode-web.stop",
+        "title": "OpenCode: Stop Server"
+      },
+      {
+        "command": "opencode-web.showOutput",
+        "title": "OpenCode: Show Output"
+      },
+      {
+        "command": "opencode-web.searchFiles",
+        "title": "OpenCode: Search Files"
+      },
+      {
+        "command": "opencode-web.searchText",
+        "title": "OpenCode: Search Text"
+      },
+      {
+        "command": "opencode-web.searchSymbols",
+        "title": "OpenCode: Search Symbols"
+      },
+      {
+        "command": "opencode-web.openTerminal",
+        "title": "OpenCode: Open Terminal"
+      },
+      {
+        "command": "opencode-web.forkSession",
+        "title": "OpenCode: Fork Session"
+      },
+      {
+        "command": "opencode-web.revertSession",
+        "title": "OpenCode: Revert Session"
+      },
+      {
+        "command": "opencode-web.shareSession",
+        "title": "OpenCode: Share Session"
+      },
+      {
+        "command": "opencode-web.summarizeSession",
+        "title": "OpenCode: Summarize Session"
+      },
+      {
+        "command": "opencode-web.deleteSession",
+        "title": "OpenCode: Delete Session"
+      },
+      {
+        "command": "opencode-web.showDiff",
+        "title": "OpenCode: Show Diff"
+      },
+      {
+        "command": "opencode-web.selectSession",
+        "title": "OpenCode: Select Session"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "opencode-web.sendCode",
+          "group": "navigation",
+          "when": "editorTextFocus"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "opencode-web.newSession",
+          "when": "focusedView == 'opencode-web.chatView'"
+        },
+        {
+          "command": "opencode-web.sendCode",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "opencode-web.searchFiles",
+          "when": "sideBarFocus && activeViewlet == 'workbench.view.extension.opencode-web'"
+        },
+        {
+          "command": "opencode-web.openInBrowser",
+          "when": "view.opencode-web.chatView.visible"
+        },
+        {
+          "command": "opencode-web.restart",
+          "when": "view.opencode-web.chatView.visible"
+        },
+        {
+          "command": "opencode-web.stop",
+          "when": "view.opencode-web.chatView.visible"
+        },
+        {
+          "command": "opencode-web.showOutput",
+          "when": "view.opencode-web.chatView.visible"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "opencode-web.forkSession",
+          "when": "viewItem == session",
+          "group": "session@1"
+        },
+        {
+          "command": "opencode-web.shareSession",
+          "when": "viewItem == session",
+          "group": "session@2"
+        },
+        {
+          "command": "opencode-web.summarizeSession",
+          "when": "viewItem == session",
+          "group": "session@3"
+        },
+        {
+          "command": "opencode-web.deleteSession",
+          "when": "viewItem == session",
+          "group": "session@4"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "opencode-web.sendCode",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "opencode-web.openChat",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "opencode-web.openTerminal",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "opencode-web.newSession",
+        "key": "ctrl+shift+n",
+        "mac": "cmd+shift+n",
+        "when": "editorTextFocus"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencode-web",
+          "title": "OpenCode",
+          "icon": "media/opencode.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencode-web": [
+        {
+          "id": "opencode-web.chatView",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
+          "id": "opencode-web.sessions",
+          "name": "Sessions",
+          "type": "tree",
+          "visibility": "hidden"
+        },
+        {
+          "id": "opencode-web.providers",
+          "name": "Providers",
+          "type": "tree",
+          "visibility": "hidden"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenCode",
+      "properties": {
+        "opencode.port": {
+          "type": "number",
+          "default": 57777,
+          "description": "Server port"
+        },
+        "opencode.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom binary path"
+        },
+        "opencode.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start server"
+        },
+        "opencode.webUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Local SPA dev server URL (e.g. http://localhost:4444). When set, iframe loads from this URL instead of the serve proxy."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.js --production",
+    "watch": "node esbuild.config.js --watch",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "build:spa": "bash scripts/build-spa.sh",
+    "dev:spa": "VITE_OPENCODE_SERVER_PORT=57777 VITE_OPENCODE_SERVER_HOST=127.0.0.1 bun --cwd ../packages/app dev -- --port 4444",
+    "pretest:e2e": "bun run build && node esbuild.e2e.js",
+    "test:e2e": "node out/test/e2e/runTest.js",
+    "test:browser": "npx playwright test --config playwright.config.ts",
+    "lint": "echo lint-placeholder"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.3",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.5",
+    "typescript": "^5.8.3",
+    "vitest": "^1.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: build",
+      "type": "shell",
+      "command": "bun run build",
+      "group": "build",
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: watch",
+      "type": "shell",
+      "command": "bun run watch",
+      "group": "build",
+      "isBackground": true,
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "app: dev",
+      "type": "shell",
+      "command": "VITE_OPENCODE_SERVER_PORT=57777 VITE_OPENCODE_SERVER_HOST=127.0.0.1 bun dev -- --port 4444",
+      "options": { "cwd": "${workspaceFolder}/../packages/app" },
+      "isBackground": true,
+      "presentation": { "reveal": "silent", "panel": "dedicated" },
+      "problemMatcher": []
+    }
+  ]
+}

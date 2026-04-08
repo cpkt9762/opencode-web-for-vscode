@@ -1,0 +1,46 @@
+{
+  "name": "csp-prototype",
+  "displayName": "CSP Prototype",
+  "description": "Minimal VSCode webview iframe CSP prototype",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onView:cspPrototype.view"
+  ],
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "cspPrototype.view",
+          "name": "Iframe CSP Prototype"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CSP Prototype",
+      "properties": {
+        "cspPrototype.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:57777",
+          "description": "Localhost URL rendered inside the prototype iframe."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "vitest run",
+    "docs": "bun run scripts/verify-docs.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

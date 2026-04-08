@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#1e1b4b"/>
+  <rect x="18" y="26" width="92" height="76" rx="6" fill="#0f0d2e"/>
+  <rect x="18" y="26" width="92" height="2" fill="#a78bfa"/>
+  <rect x="18" y="100" width="92" height="2" fill="#a78bfa"/>
+  <rect x="18" y="26" width="2" height="76" fill="#a78bfa"/>
+  <rect x="108" y="26" width="2" height="76" fill="#a78bfa"/>
+  <rect x="20" y="28" width="88" height="12" fill="#312e81"/>
+  <circle cx="28" cy="34" r="2.5" fill="#f87171"/>
+  <circle cx="38" cy="34" r="2.5" fill="#fbbf24"/>
+  <circle cx="48" cy="34" r="2.5" fill="#34d399"/>
+  <polygon points="36,55 38,52 54,68 54,72 38,88 36,85 51,70" fill="#a78bfa"/>
+  <rect x="58" y="85" width="40" height="5" rx="2" fill="#a78bfa"/>
+  <rect x="58" y="55" width="32" height="3" rx="1" fill="#c4b5fd" opacity="0.6"/>
+  <rect x="58" y="64" width="24" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+  <rect x="58" y="73" width="28" height="3" rx="1" fill="#c4b5fd" opacity="0.4"/>
+</svg>
