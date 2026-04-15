@@ -347,6 +347,26 @@ describe("extension", () => {
     expect(createStatusBar).toHaveBeenCalledOnce()
   })
 
+  it("reads serverPassword config and passes to ProcessManager", async () => {
+    getConfiguration.mockReturnValueOnce({
+      get: vi.fn((key: string, value: unknown) => {
+        if (key === "port") return 4096
+        if (key === "autoStart") return true
+        if (key === "serverPassword") return "ext-secret"
+        if (key === "webUrl") return "http://localhost:4096"
+        return value
+      }),
+    })
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    expect(ProcessManager).toHaveBeenCalledWith(4096, {
+      dir: undefined,
+      password: "ext-secret",
+    })
+  })
+
   it("sync updates webview URL when folder changes to existing project", async () => {
     const { activate } = await import("./extension.js")
 

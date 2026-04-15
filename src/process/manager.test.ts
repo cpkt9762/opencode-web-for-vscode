@@ -12,16 +12,20 @@ type Bin = {
   compatible: boolean
 } | null
 
-const state = vi.hoisted(() => ({
+const state = {
   bin: {
     path: "/tmp/opencode",
     version: "1.3.0",
     compatible: true,
   } as Bin,
-}))
+}
 
-vi.mock("./discover.js", () => ({
-  findBinary: () => state.bin,
+vi.mock("vscode", () => ({
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn(() => ""),
+    })),
+  },
 }))
 
 import { ProcessManager, type ProcessStatus, type Runner } from "./manager.js"
@@ -165,6 +169,7 @@ describe("ProcessManager", () => {
     const fakebin = fake()
     const mgr = new ProcessManager({
       port: value,
+      find: () => state.bin,
       spawn: fakebin.spawn,
       timeout: 2000,
       grace: 50,
@@ -183,11 +188,33 @@ describe("ProcessManager", () => {
     await mgr.stop()
   })
 
+  it("start with configured password uses it instead of random", async () => {
+    const value = await port()
+    const fakebin = fake()
+    const mgr = new ProcessManager({
+      port: value,
+      find: () => state.bin,
+      password: "my-secret",
+      spawn: fakebin.spawn,
+      timeout: 2000,
+      grace: 50,
+    })
+
+    const result = await mgr.start()
+
+    expect(result.url).toBe(`http://127.0.0.1:${value}`)
+    expect(result.password).toBe("my-secret")
+    expect(fakebin.calls[0]?.env.OPENCODE_SERVER_PASSWORD).toBe("my-secret")
+
+    await mgr.stop()
+  })
+
   it("stop sends SIGTERM then SIGKILL after timeout", async () => {
     const value = await port()
     const fakebin = fake({ OPENCODE_TEST_IGNORE_TERM: "1" })
     const mgr = new ProcessManager({
       port: value,
+      find: () => state.bin,
       spawn: fakebin.spawn,
       timeout: 2000,
       grace: 50,
@@ -215,6 +242,7 @@ describe("ProcessManager", () => {
     const seen: ProcessStatus[] = []
     const mgr = new ProcessManager({
       port: value,
+      find: () => state.bin,
       spawn: fakebin.spawn,
       timeout: 2000,
       grace: 50,
@@ -236,12 +264,14 @@ describe("ProcessManager", () => {
   it("password is random hex", async () => {
     const left = new ProcessManager({
       port: await port(),
+      find: () => state.bin,
       spawn: fake().spawn,
       timeout: 2000,
       grace: 50,
     })
     const right = new ProcessManager({
       port: await port(),
+      find: () => state.bin,
       spawn: fake().spawn,
       timeout: 2000,
       grace: 50,
@@ -277,6 +307,33 @@ describe("ProcessManager", () => {
 
     expect(result.url).toBe(`http://127.0.0.1:${value}`)
     expect(result.password).toMatch(/^[0-9a-f]{32}$/)
+    expect(mgr.getStatus()).toBe("running")
+    expect(spawn).not.toHaveBeenCalled()
+
+    await close(server)
+  })
+
+  it("reusing existing server returns configured password", async () => {
+    const value = await port()
+    const server = await health(value)
+    const spawn = vi.fn((file: string, args?: readonly string[], opts?: SpawnOptions) => {
+      const list = [...(args ?? [])]
+      if (!opts) return run(file, list)
+      return run(file, list, opts)
+    })
+    const mgr = new ProcessManager({
+      port: value,
+      find: () => state.bin,
+      password: "shared-secret",
+      spawn,
+      timeout: 500,
+      grace: 50,
+    })
+
+    const result = await mgr.start()
+
+    expect(result.url).toBe(`http://127.0.0.1:${value}`)
+    expect(result.password).toBe("shared-secret")
     expect(mgr.getStatus()).toBe("running")
     expect(spawn).not.toHaveBeenCalled()
 

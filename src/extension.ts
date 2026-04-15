@@ -162,6 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const cfg = vscode.workspace.getConfiguration("opencode")
   const port = cfg.get<number>("port", 57777)
   const auto = cfg.get<boolean>("autoStart", true)
+  const pwd = cfg.get<string>("serverPassword", "")
   const bin = findBinary()
 
   trace(`binary: ${bin ? `${bin.path} (${bin.version})` : "NOT FOUND"}`)
@@ -170,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const cwd = folders?.[0]?.uri.fsPath
   trace(`spawn cwd: ${cwd ?? "(none)"}`)
 
-  const manager = new ProcessManager(port, { dir: cwd })
+  const manager = new ProcessManager(port, { dir: cwd, password: pwd || undefined })
   context.subscriptions.push(manager)
 
   let sdk: Sdk | null = null

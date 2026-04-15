@@ -247,6 +247,11 @@
           "type": "string",
           "default": "",
           "description": "Local SPA dev server URL (e.g. http://localhost:4444). When set, iframe loads from this URL instead of the serve proxy."
+        },
+        "opencode.serverPassword": {
+          "type": "string",
+          "default": "",
+          "description": "Password for shared opencode server. When set, connects to an existing server using this password instead of starting a new one."
         }
       }
     }

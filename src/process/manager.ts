@@ -4,7 +4,7 @@ import { createConnection, type Socket } from "node:net"
 import { promisify } from "node:util"
 import type * as vscode from "vscode"
 import { retry, withTimeout } from "../utils/retry.js"
-import { type BinaryInfo, findBinary } from "./discover.js"
+import type { BinaryInfo } from "./discover.js"
 
 const HOST = "127.0.0.1"
 const SDK_VERSION = "1.3.0"
@@ -16,6 +16,13 @@ const spawn: Runner = (file, args, opts) => {
   const list = [...(args ?? [])]
   if (!opts) return run(file, list)
   return run(file, list, opts)
+}
+
+const locate = () => {
+  const mod = require("./discover.js") as {
+    findBinary: () => BinaryInfo | null
+  }
+  return mod.findBinary()
 }
 
 export type ProcessStatus = "starting" | "running" | "stopped" | "error"
@@ -39,6 +46,7 @@ export type ProcessManagerOptions = {
   port: number
   dir?: string
   host?: string
+  password?: string
   timeout?: number
   grace?: number
   spawn?: Runner
@@ -86,6 +94,7 @@ export class ProcessManager implements vscode.Disposable {
   private readonly sleep: (ms: number) => Promise<void>
   private readonly platform: NodeJS.Platform
   private readonly dir: string | null
+  private readonly configured: string | null
   private readonly status = new Emitter<ProcessStatus>()
 
   private proc: ChildProcess | null = null
@@ -109,10 +118,11 @@ export class ProcessManager implements vscode.Disposable {
     this.fetch = cfg.fetch ?? fetch
     this.exec = cfg.exec ?? exec
     this.connect = cfg.connect ?? createConnection
-    this.find = cfg.find ?? findBinary
+    this.find = cfg.find ?? locate
     this.sleep = cfg.sleep ?? wait
     this.platform = cfg.platform ?? process.platform
     this.dir = cfg.dir ?? null
+    this.configured = cfg.password ?? null
   }
 
   async start(): Promise<StartResult> {
@@ -121,7 +131,7 @@ export class ProcessManager implements vscode.Disposable {
       return { url: this.url, password: this.password }
     }
 
-    const password = randomBytes(16).toString("hex")
+    const password = this.configured || randomBytes(16).toString("hex")
     const task = this.boot(password)
     this.task = task.finally(() => {
       if (this.task === task) {
@@ -207,6 +217,7 @@ export class ProcessManager implements vscode.Disposable {
 
       const env = { ...process.env }
       delete env.OPENCODE_SERVER_PASSWORD
+      if (this.configured) env.OPENCODE_SERVER_PASSWORD = this.configured
       const proc = this.spawn(bin.path, ["serve", "--port", String(this.port)], {
         env,
         cwd: this.dir ?? undefined,
@@ -404,10 +415,6 @@ export class ProcessManager implements vscode.Disposable {
 
     proc.kill(signal)
   }
-}
-
-function auth(password: string) {
-  return `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
 }
 
 function compatible(version: string) {
