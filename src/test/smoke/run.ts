@@ -105,6 +105,8 @@ async function main() {
 
   try {
     const srv = await mgr.start()
+    const pid = (Reflect.get(mgr, "proc") as { pid?: number } | null)?.pid
+    if (!pid) throw new Error("Failed to capture smoke server pid")
     await register(srv.url, srv.password, ready)
 
     writeFileSync(
@@ -135,6 +137,9 @@ async function main() {
       code,
       ext,
       fresh,
+      password: srv.password,
+      pid,
+      port: num,
       ready,
       root: data,
     })

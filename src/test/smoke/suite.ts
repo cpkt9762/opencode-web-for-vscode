@@ -9,6 +9,9 @@ type Cfg = {
   code: string
   ext: string
   fresh: string
+  password: string
+  pid: number
+  port: number
   ready: string
   root: string
 }
@@ -20,6 +23,10 @@ type Win = {
 
 function slug(input: string) {
   return Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+}
+
+function auth(pwd: string) {
+  return `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}`
 }
 
 async function pick(page: Page, list: string[], ms = 60000) {
@@ -131,6 +138,23 @@ async function home(frame: Frame) {
   throw new Error("Timed out waiting for welcome page content")
 }
 
+async function health(port: number, pwd: string) {
+  const res = await fetch(`http://127.0.0.1:${port}/global/health`, {
+    headers: {
+      Authorization: auth(pwd),
+    },
+    signal: AbortSignal.timeout(5000),
+  })
+  assert.equal(res.ok, true, `Health check failed for port ${port}: ${res.status}`)
+
+  const body = (await res.json()) as {
+    healthy?: unknown
+    version?: unknown
+  }
+  assert.equal(body.healthy, true, `Server on port ${port} is not healthy`)
+  assert.equal(typeof body.version, "string", `Server on port ${port} did not report a version`)
+}
+
 async function web(page: Page, ms = 60000): Promise<Frame> {
   const stop = Date.now() + ms
 
@@ -225,6 +249,34 @@ function add(mocha: Mocha, cfg: Cfg) {
         })
       } finally {
         await shut(win)
+      }
+    }),
+  )
+
+  suite.addTest(
+    new Mocha.Test("multiple VSCode instances share the same server port", async () => {
+      const one = await open(cfg, cfg.fresh)
+
+      try {
+        const a = await show(one.page)
+        await expect(a.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
+        await url(a, (item) => item.pathname === "/")
+        await health(cfg.port, cfg.password)
+        assert.doesNotThrow(() => process.kill(cfg.pid, 0), `Shared server pid ${cfg.pid} exited after first window`)
+
+        const two = await open(cfg, cfg.ready)
+
+        try {
+          const b = await show(two.page)
+          await expect(b.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
+          await url(b, (item) => item.pathname === `/${slug(cfg.ready)}`)
+          await health(cfg.port, cfg.password)
+          assert.doesNotThrow(() => process.kill(cfg.pid, 0), `Shared server pid ${cfg.pid} exited after second window`)
+        } finally {
+          await shut(two)
+        }
+      } finally {
+        await shut(one)
       }
     }),
   )
