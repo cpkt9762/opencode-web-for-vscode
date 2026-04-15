@@ -44,6 +44,13 @@ function init(dir: string) {
   execSync("git init", { cwd: dir, stdio: "ignore" })
 }
 
+function seed(dir: string) {
+  execSync('git -c user.name="Smoke" -c user.email="smoke@example.com" commit --allow-empty -m "smoke"', {
+    cwd: dir,
+    stdio: "ignore",
+  })
+}
+
 async function register(url: string, pwd: string, dir: string) {
   const target = new URL(`/project/current?directory=${encodeURIComponent(dir)}`, url)
   const res = await fetch(target, {
@@ -79,8 +86,8 @@ async function main() {
   mkdirSync(rawReady)
   const fresh = realpathSync(rawFresh)
   const ready = realpathSync(rawReady)
-  init(fresh)
   init(ready)
+  seed(ready)
 
   symlinkSync(dev, resolve(ext, "opencode.opencode-web-for-vscode"), "dir")
 

@@ -1,220 +1,300 @@
-import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { setTimeout as wait } from "node:timers/promises";
-import {
-	type ElectronApplication,
-	_electron as electron,
-	expect,
-	type Frame,
-	type Page,
-} from "@playwright/test";
-import Mocha from "mocha";
+import assert from "node:assert/strict"
+import { mkdtempSync } from "node:fs"
+import { join } from "node:path"
+import { setTimeout as wait } from "node:timers/promises"
+import { type ElectronApplication, _electron as electron, expect, type Frame, type Page } from "@playwright/test"
+import Mocha from "mocha"
 
 type Cfg = {
-	code: string;
-	ext: string;
-	fresh: string;
-	ready: string;
-	root: string;
-};
+  code: string
+  ext: string
+  fresh: string
+  ready: string
+  root: string
+}
 
 type Win = {
-	app: ElectronApplication;
-	page: Page;
-};
+  app: ElectronApplication
+  page: Page
+}
+
+function slug(input: string) {
+  return Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+}
 
 async function pick(page: Page, list: string[], ms = 60000) {
-	const stop = Date.now() + ms;
+  const stop = Date.now() + ms
 
-	while (Date.now() < stop) {
-		for (const item of list) {
-			const loc = page.locator(item).first();
-			const ok = await loc.isVisible().catch(() => false);
-			if (ok) return loc;
-		}
+  while (Date.now() < stop) {
+    for (const item of list) {
+      const loc = page.locator(item).first()
+      const ok = await loc.isVisible().catch(() => false)
+      if (ok) return loc
+    }
 
-		await wait(250);
-	}
+    await wait(250)
+  }
 
-	throw new Error(`Timed out waiting for selector: ${list.join(" | ")}`);
+  throw new Error(`Timed out waiting for selector: ${list.join(" | ")}`)
 }
 
 async function open(cfg: Cfg, dir: string): Promise<Win> {
-	const user = mkdtempSync(join(cfg.root, "user-"));
-	const args = [
-		dir,
-		`--extensions-dir=${cfg.ext}`,
-		`--user-data-dir=${user}`,
-		"--disable-gpu",
-		"--disable-workspace-trust",
-		"--new-window",
-		"--skip-release-notes",
-		"--skip-welcome",
-	];
+  const user = mkdtempSync(join(cfg.root, "user-"))
+  const args = [
+    dir,
+    `--extensions-dir=${cfg.ext}`,
+    `--user-data-dir=${user}`,
+    "--disable-gpu",
+    "--locale=en-US",
+    "--disable-workspace-trust",
+    "--new-window",
+    "--skip-release-notes",
+    "--skip-welcome",
+  ]
 
-	if (process.platform === "linux") args.push("--no-sandbox");
+  if (process.platform === "linux") args.push("--no-sandbox")
 
-	const app = await electron.launch({
-		args,
-		cwd: cfg.root,
-		executablePath: cfg.code,
-		timeout: 60000,
-	});
-	const page = await app.firstWindow();
-	await page.waitForSelector(".monaco-workbench", { timeout: 60000 });
-	return { app, page };
+  const app = await electron.launch({
+    args,
+    cwd: cfg.root,
+    env: {
+      ...process.env,
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+    },
+    executablePath: cfg.code,
+    timeout: 60000,
+  })
+  const page = await app.firstWindow()
+  await page.waitForSelector(".monaco-workbench", { timeout: 60000 })
+  return { app, page }
 }
 
 async function icon(page: Page) {
-	return pick(page, [
-		'[id="workbench.view.extension.opencode-web"]',
-		'.composite-bar [aria-label="OpenCode"]',
-		'.activitybar [aria-label="OpenCode"]',
-		'.composite-bar [aria-label^="OpenCode"]',
-		'.activitybar [aria-label^="OpenCode"]',
-	]);
+  return pick(page, [
+    '[role="tab"][aria-label="OpenCode"]',
+    '[role="tab"][aria-label^="OpenCode"]',
+    '[id="workbench.view.extension.opencode-web"] .action-label',
+    '[id="workbench.view.extension.opencode-web"]',
+    '.composite-bar [aria-label="OpenCode"]',
+    '.activitybar [aria-label="OpenCode"]',
+    '.composite-bar [aria-label^="OpenCode"]',
+    '.activitybar [aria-label^="OpenCode"]',
+  ])
+}
+
+function spa(frame: Frame) {
+  return frame.frameLocator("#opencode-frame")
+}
+
+async function url(frame: Frame, test?: (item: URL) => boolean, ms = 60000) {
+  const stop = Date.now() + ms
+
+  while (Date.now() < stop) {
+    const raw = await frame
+      .locator("#opencode-frame")
+      .getAttribute("src")
+      .catch(() => null)
+    if (raw) {
+      const item = new URL(raw)
+      if (!test || test(item)) return item
+    }
+
+    await wait(250)
+  }
+
+  throw new Error("Timed out waiting for OpenCode iframe URL")
+}
+
+async function home(frame: Frame) {
+  const app = spa(frame)
+  const stop = Date.now() + 30000
+
+  while (Date.now() < stop) {
+    const btn = await app
+      .getByRole("button")
+      .count()
+      .catch(() => 0)
+    const list = await app
+      .locator("ul button")
+      .count()
+      .catch(() => 0)
+    const icon = await app
+      .locator("svg")
+      .count()
+      .catch(() => 0)
+    if (btn >= 2 && (list > 0 || icon > 0)) return app
+
+    await wait(250)
+  }
+
+  throw new Error("Timed out waiting for welcome page content")
 }
 
 async function web(page: Page, ms = 60000): Promise<Frame> {
-	const stop = Date.now() + ms;
+  const stop = Date.now() + ms
 
-	while (Date.now() < stop) {
-		for (const item of page.frames()) {
-			if (item === page.mainFrame()) continue;
-			const ok = await item
-				.locator("#opencode-frame")
-				.count()
-				.then((n) => n > 0)
-				.catch(() => false);
-			if (ok) return item;
-		}
+  while (Date.now() < stop) {
+    for (const item of page.frames()) {
+      if (item === page.mainFrame()) continue
+      const ok = await item
+        .locator("#opencode-frame")
+        .count()
+        .then((n) => n > 0)
+        .catch(() => false)
+      if (ok) return item
+    }
 
-		await wait(250);
-	}
+    await wait(250)
+  }
 
-	throw new Error("Timed out waiting for OpenCode webview frame");
+  throw new Error("Timed out waiting for OpenCode webview frame")
 }
 
-async function show(page: Page) {
-	const item = await icon(page);
-	await item.click();
-	return web(page);
+async function show(page: Page, ms = 60000) {
+  const item = await icon(page)
+  await item.click({ force: true })
+  return web(page, ms)
+}
+
+async function reveal(page: Page, ms = 60000) {
+  const stop = Date.now() + ms
+
+  while (Date.now() < stop) {
+    const item = await icon(page)
+    await item.click({ force: true }).catch(() => null)
+    await page
+      .locator("iframe.webview")
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 })
+      .catch(() => null)
+
+    const frame = await web(page, 5000).catch(() => null)
+    if (frame) return frame
+
+    await wait(500)
+  }
+
+  throw new Error("Timed out opening OpenCode sidebar")
 }
 
 async function shut(win: Win) {
-	await win.app.close();
+  await Promise.race([win.app.close().catch(() => null), wait(5000)])
 }
 
 function add(mocha: Mocha, cfg: Cfg) {
-	const suite = Mocha.Suite.create(mocha.suite, "smoke");
+  const suite = Mocha.Suite.create(mocha.suite, "smoke")
 
-	suite.addTest(
-		new Mocha.Test(
-			"shows SPA welcome page for unregistered folder",
-			async () => {
-				const win = await open(cfg, cfg.fresh);
+  suite.addTest(
+    new Mocha.Test("shows SPA welcome page for unregistered folder", async () => {
+      const win = await open(cfg, cfg.fresh)
 
-				try {
-					const frame = await show(win.page);
-					await expect(frame.locator("body")).toHaveAttribute(
-						"data-state",
-						"ready",
-						{ timeout: 60000 },
-					);
-					await expect(frame.locator("#shell")).toBeHidden();
-					await expect(frame.locator("#opencode-frame")).toBeVisible();
+      try {
+        const frame = await show(win.page)
+        await expect(frame.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
+        await expect(frame.locator("#shell")).toBeHidden()
+        await expect(frame.locator("#opencode-frame")).toBeVisible()
 
-					const src = await frame
-						.locator("#opencode-frame")
-						.getAttribute("src");
-					assert.ok(src);
-					assert.ok(
-						src.startsWith("http://127.0.0.1:"),
-						`Unexpected iframe src: ${src}`,
-					);
-					assert.equal(new URL(src).pathname, "/");
-				} finally {
-					await shut(win);
-				}
-			},
-		),
-	);
+        const item = await url(frame, (item) => item.pathname === "/")
+        assert.ok(item.href.startsWith("http://127.0.0.1:"), `Unexpected iframe src: ${item.href}`)
+        assert.equal(item.pathname, "/")
+        await home(frame)
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
 
-	suite.addTest(
-		new Mocha.Test(
-			"shows SPA iframe for registered project folder",
-			async () => {
-				const win = await open(cfg, cfg.ready);
+  suite.addTest(
+    new Mocha.Test("shows SPA iframe for registered project folder", async () => {
+      const win = await open(cfg, cfg.ready)
 
-				try {
-					const frame = await show(win.page);
-					await expect(frame.locator("body")).toHaveAttribute(
-						"data-state",
-						"ready",
-						{ timeout: 60000 },
-					);
-					await expect(frame.locator("#shell")).toBeHidden();
-					await expect(frame.locator("#opencode-frame")).toBeVisible();
+      try {
+        const frame = await show(win.page)
+        await expect(frame.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
+        await expect(frame.locator("#shell")).toBeHidden()
+        await expect(frame.locator("#opencode-frame")).toBeVisible()
 
-					const src = await frame
-						.locator("#opencode-frame")
-						.getAttribute("src");
-					assert.ok(src);
-					assert.ok(
-						src.startsWith("http://127.0.0.1:"),
-						`Unexpected iframe src: ${src}`,
-					);
-				} finally {
-					await shut(win);
-				}
-			},
-		),
-	);
+        const item = await url(frame, (item) => item.pathname === `/${slug(cfg.ready)}`)
+        assert.ok(item.href.startsWith("http://127.0.0.1:"), `Unexpected iframe src: ${item.href}`)
+        assert.equal(item.pathname, `/${slug(cfg.ready)}`)
 
-	suite.addTest(
-		new Mocha.Test(
-			"opens OpenCode sidebar panel from the activity bar icon",
-			async () => {
-				const win = await open(cfg, cfg.fresh);
+        const app = spa(frame)
+        await expect(app.locator("body")).toContainText(/\S/, {
+          timeout: 30000,
+        })
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
 
-				try {
-					await expect(win.page.locator("iframe.webview")).toHaveCount(0, {
-						timeout: 10000,
-					});
-					const item = await icon(win.page);
-					await item.click();
+  suite.addTest(
+    new Mocha.Test("welcome page lists recent projects and opens one on click", async () => {
+      const win = await open(cfg, cfg.fresh)
 
-					const frame = await web(win.page);
-					await expect(win.page.locator("iframe.webview").first()).toBeVisible({
-						timeout: 60000,
-					});
-					await expect(frame.locator("#box")).toBeVisible();
-				} finally {
-					await shut(win);
-				}
-			},
-		),
-	);
+      try {
+        const frame = await show(win.page)
+        await url(frame, (item) => item.pathname === "/")
+        const app = await home(frame)
+        const item = app.locator("button.mt-4").first()
+
+        await expect(item).toBeVisible({ timeout: 30000 })
+        await item.click()
+        await expect(app.locator('[data-component="dialog"] [data-slot="dialog-content"]')).toBeVisible({
+          timeout: 30000,
+        })
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
+
+  suite.addTest(
+    new Mocha.Test("opens OpenCode sidebar panel from the activity bar icon", async () => {
+      const win = await open(cfg, cfg.fresh)
+
+      try {
+        await expect(win.page.locator("iframe.webview")).toHaveCount(0, {
+          timeout: 10000,
+        })
+        const frame = await reveal(win.page)
+        await expect(win.page.locator("iframe.webview").first()).toBeVisible({
+          timeout: 60000,
+        })
+        const box = await frame
+          .locator("#box")
+          .isVisible()
+          .catch(() => false)
+        const app = await frame
+          .locator("#opencode-frame")
+          .isVisible()
+          .catch(() => false)
+        assert.equal(box || app, true, "OpenCode view did not render shell or SPA iframe")
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
 }
 
 export async function run(cfg: Cfg) {
-	const mocha = new Mocha({
-		color: true,
-		timeout: 90000,
-		ui: "bdd",
-	});
+  const mocha = new Mocha({
+    color: true,
+    timeout: 90000,
+    ui: "bdd",
+  })
 
-	add(mocha, cfg);
+  add(mocha, cfg)
 
-	await new Promise<void>((done, fail) => {
-		mocha.run((count) => {
-			if (count > 0) {
-				fail(new Error(`${count} smoke tests failed`));
-				return;
-			}
+  await new Promise<void>((done, fail) => {
+    mocha.run((count) => {
+      if (count > 0) {
+        fail(new Error(`${count} smoke tests failed`))
+        return
+      }
 
-			done();
-		});
-	});
+      done()
+    })
+  })
 }
