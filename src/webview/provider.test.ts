@@ -16,6 +16,17 @@ function view() {
   } as unknown as vscode.WebviewView
 }
 
+function live() {
+  return {
+    webview: {
+      html: "",
+      onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
+      options: undefined,
+      postMessage: vi.fn(),
+    },
+  } as unknown as vscode.WebviewView
+}
+
 function set(provider: OpenCodeWebviewProvider, state: string, opts?: { folder?: string }) {
   const fn = Reflect.get(provider, "setState") as (state: string, opts?: { folder?: string }) => void
   fn.call(provider, state, opts)
@@ -98,36 +109,39 @@ describe("OpenCodeWebviewProvider", () => {
     expect(item.webview.html).toContain('iframe id="opencode-frame" src="http://localhost:4097"')
   })
 
-  it('T4: setState("no-project") renders create-project UI', () => {
-    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
-    const item = view()
-
-    provider.resolveWebviewView(item)
-    set(provider, "no-project")
-
-    expect(item.webview.html).toContain('data-state="no-project"')
-    expect(item.webview.html).toContain("Create OpenCode Project")
-  })
-
-  it('T5: setState("no-project") hides iframe', () => {
-    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
-    const item = view()
-
-    provider.resolveWebviewView(item)
-    set(provider, "no-project")
-
-    expect(item.webview.html).toContain('data-state="no-project"')
-    expect(item.webview.html).toContain("visibility:hidden")
-  })
-
-  it('T6: setState("no-project") shows folder path', () => {
+  it("T4: setUrl(root) returns webview to loading state", () => {
     const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
     const item = view()
 
     provider.resolveWebviewView(item)
     set(provider, "no-project", { folder: "/test/dir" })
+    provider.setUrl("http://localhost:4096")
 
-    expect(item.webview.html).toContain("/test/dir")
+    expect(item.webview.html).toContain('data-state="loading"')
+    expect(item.webview.html).toContain('iframe id="opencode-frame" src="http://localhost:4096"')
+  })
+
+  it("T5: setUrl(root) clears no-project folder metadata", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    set(provider, "no-project", { folder: "/test/dir" })
+    provider.setUrl("http://localhost:4096")
+
+    expect(item.webview.html).not.toContain("/test/dir")
+  })
+
+  it("T6: setUrl(same) re-renders when postMessage transport is active", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = live()
+
+    provider.resolveWebviewView(item)
+    const prev = item.webview.html
+    provider.setUrl("http://localhost:4096")
+
+    expect(item.webview.html).not.toBe(prev)
+    expect(item.webview.html).toContain('data-state="loading"')
   })
 
   it('T7: setState from "no-project" to "loading" re-renders correctly', () => {

@@ -5,12 +5,28 @@
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "npm: build",
       "args": [
         "/Users/pingzi/Developer/work/AIGC/opencode",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "sourceMaps": true
+    },
+    {
+      "name": "Run Extension (Fresh Folder)",
+      "type": "extensionHost",
+      "request": "launch",
+      "preLaunchTask": "fresh-workspace",
+      "args": [
+        "/tmp/opencode-dev-test",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "sourceMaps": true,
+      "env": {
+        "OPENCODE_DEV_PORT": "58888"
+      }
     }
   ]
 }

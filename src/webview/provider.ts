@@ -375,10 +375,11 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   setUrl(url: string) {
+    const same = url === this.url
     this.url = url
     this.setState(init(url))
     if (!this.view) return
-    if (this.post(MSG.set_url, { url })) return
+    if (!same && this.post(MSG.set_url, { url })) return
     this.view.webview.html = page(url, this.state, this.folder)
   }
 

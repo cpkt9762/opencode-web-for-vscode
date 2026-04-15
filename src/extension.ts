@@ -204,6 +204,25 @@ export async function activate(context: vscode.ExtensionContext) {
       url,
     }
   }
+  const home = async (url: string) => {
+    const web = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
+    if (web) return web
+    if (root) return root
+
+    const dist = vscode.Uri.joinPath(context.extensionUri, "spa").fsPath
+    trace(`SPA dist path: ${dist}`)
+    trace(`SPA stable port target: ${url}`)
+    const spa = await startSpa({ dist, backend: url, log: trace }).catch((err: unknown) => {
+      trace(`SPA server failed: ${err}`)
+      return null
+    })
+    if (!spa) return url
+
+    root = `http://127.0.0.1:${spa.port}`
+    trace(`SPA server on port ${spa.port}`)
+    context.subscriptions.push({ dispose: () => spa.server.close() })
+    return root
+  }
 
   const webview = new OpenCodeWebviewProvider({
     url: manager.getUrl() ?? "about:blank",
@@ -404,13 +423,12 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!cfg) return
 
       sdk = cfg
-      const web = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
-      const base = web || root || item.url
+      const base = await home(item.url)
       if (base) webview.setUrl(`${base}/${slug(dir)}`)
       return
     }
 
-    webview.setState("no-project", { folder: dir })
+    webview.setUrl(await home(item.url))
   }
 
   const link = async (url: string, password: string) => {
@@ -445,8 +463,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!item.url) return
 
     if (!item.has) {
-      root = ""
-      webview.setState("no-project", { folder: dir })
+      webview.setUrl(await home(item.url))
       void pull()
       return
     }
@@ -458,27 +475,11 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!cfg) return
 
     sdk = cfg
-    let base = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
-    if (!base) {
-      const dist = vscode.Uri.joinPath(context.extensionUri, "spa").fsPath
-      trace(`SPA dist path: ${dist}`)
-      trace(`SPA stable port target: ${url}`)
-      const spa = await startSpa({ dist, backend: url, log: trace }).catch((e: unknown) => {
-        trace(`SPA server failed: ${e}`)
-        return null
-      })
-      if (spa) {
-        base = `http://127.0.0.1:${spa.port}`
-        trace(`SPA server on port ${spa.port}`)
-        context.subscriptions.push({ dispose: () => spa.server.close() })
-      }
-    }
-
-    root = base || url
+    const base = await home(url)
 
     const last = context.workspaceState.get<string>("lastSessionId")
     const session = last ? `/session/${last}` : ""
-    const target = `${root}/${slug(dir)}${session}`
+    const target = `${base}/${slug(dir)}${session}`
     trace(`iframe URL: ${target} (lastSession=${last ?? "none"})`)
     trace(`base64 slug: ${slug(dir)}`)
     webview.setUrl(target)

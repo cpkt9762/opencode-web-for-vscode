@@ -26,6 +26,14 @@
       "isBackground": true,
       "presentation": { "reveal": "silent", "panel": "dedicated" },
       "problemMatcher": []
+    },
+    {
+      "label": "fresh-workspace",
+      "type": "shell",
+      "command": "rm -rf /tmp/opencode-dev-test && mkdir -p /tmp/opencode-dev-test && git -C /tmp/opencode-dev-test init && bun run build",
+      "group": "build",
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
     }
   ]
 }

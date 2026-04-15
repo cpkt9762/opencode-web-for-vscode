@@ -391,7 +391,7 @@ describe("extension", () => {
     expect(view.setUrl).toHaveBeenCalledWith(`http://localhost:4096/${slug("/next")}`)
   })
 
-  it("sync sets no-project state when folder has no opencode project", async () => {
+  it("sync loads SPA root when folder has no opencode project", async () => {
     const { activate } = await import("./extension.js")
 
     await activate(ctx())
@@ -409,8 +409,7 @@ describe("extension", () => {
 
     expect(updateDirectory).not.toHaveBeenCalled()
     expect(view.setState).toHaveBeenNthCalledWith(1, "loading")
-    expect(view.setState).toHaveBeenNthCalledWith(2, "no-project", { folder: "/fresh" })
-    expect(view.setUrl).not.toHaveBeenCalled()
+    expect(view.setUrl).toHaveBeenCalledWith("http://localhost:4096")
   })
 
   it("sync shows placeholder when no folder open", async () => {
@@ -463,7 +462,7 @@ describe("extension", () => {
     expect(projs.some((item) => item.initGit.mock.calls.length > 0)).toBe(false)
   })
 
-  it("link shows no-project state for unregistered folder", async () => {
+  it("link loads SPA root for unregistered folder", async () => {
     const { activate } = await import("./extension.js")
 
     currentFolder.mockReturnValue("/fresh")
@@ -471,11 +470,12 @@ describe("extension", () => {
 
     await activate(ctx())
 
-    const view = views[0] as { setState: ReturnType<typeof vi.fn> }
+    const view = views[0] as { setState: ReturnType<typeof vi.fn>; setUrl: ReturnType<typeof vi.fn> }
 
     expect(currentFolder).toHaveBeenCalled()
     expect(getDirectory).not.toHaveBeenCalled()
-    expect(view.setState).toHaveBeenCalledWith("no-project", { folder: "/fresh" })
+    expect(view.setState).toHaveBeenCalledWith("loading")
+    expect(view.setUrl).toHaveBeenCalledWith("http://localhost:4096")
   })
 
   it("T15 create-project message calls initGit and forces reload", async () => {
