@@ -1,3 +1,4 @@
+import type { WebSocketInit as Opts } from "undici-types"
 import * as vscode from "vscode"
 
 type Pty = {
@@ -17,8 +18,12 @@ type Client = {
 }
 
 type GetClient = () => Client | Promise<Client | null> | null
+type Ctor = typeof WebSocket & {
+  new (url: string | URL, protocols?: string | string[] | Opts): WebSocket
+}
 
 const text = new TextDecoder()
+const Sock = WebSocket as Ctor
 
 function addr(url: string, id: string) {
   const out = new URL(`/pty/${id}/connect`, url)
@@ -100,11 +105,12 @@ export class OpenCodeTerminal implements vscode.Pseudoterminal {
     }
 
     this.id = info.id
-    const ws = new WebSocket(addr(cfg.url, info.id), {
+    const opts: Opts = {
       headers: {
         Authorization: cfg.auth,
       },
-    })
+    }
+    const ws = new Sock(addr(cfg.url, info.id), opts)
     ws.binaryType = "arraybuffer"
     ws.addEventListener("message", (event) => {
       void this.read(event.data)

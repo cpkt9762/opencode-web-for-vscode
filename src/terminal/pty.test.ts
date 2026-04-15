@@ -1,3 +1,4 @@
+import type { WebSocketInit as Opts } from "undici-types"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const fx = vi.hoisted(() => {
@@ -53,7 +54,7 @@ class MockSocket {
   static all: MockSocket[] = []
 
   readonly url: string
-  readonly init: WebSocketInit | undefined
+  readonly init: Opts | undefined
   readonly send = vi.fn()
   readonly close = vi.fn(() => {
     this.readyState = MockSocket.CLOSED
@@ -67,7 +68,7 @@ class MockSocket {
   readyState = MockSocket.OPEN
   binaryType: "blob" | "arraybuffer" = "arraybuffer"
 
-  constructor(url: string | URL, init?: WebSocketInit) {
+  constructor(url: string | URL, init?: Opts) {
     this.url = String(url)
     this.init = init
     MockSocket.all.push(this)
