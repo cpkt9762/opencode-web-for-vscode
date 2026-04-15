@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { test, expect } from "@playwright/test"
 
 const PORT = 57777
