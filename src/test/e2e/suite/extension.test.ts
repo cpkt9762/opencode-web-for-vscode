@@ -4,10 +4,11 @@ import { setTimeout as wait } from "node:timers/promises"
 import { glob } from "glob"
 import { describe, it } from "mocha"
 import * as vscode from "vscode"
+import { bin, port } from "../env.js"
 
-const BIN = "/Applications/OpenCode.app/Contents/MacOS/opencode-cli"
+const BIN = bin()
 const ID = "opencode.opencode-web-for-vscode"
-const PORT = 57777
+const PORT = port()
 const TIMEOUT = 30000
 const CMDS = [
   "opencode-web.sendCode",
@@ -90,7 +91,7 @@ describe("extension", function () {
   })
 
   it("should reach the server after activation", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -108,7 +109,7 @@ describe("extension", function () {
   })
 
   it("should serve with current workspace directory", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -130,7 +131,7 @@ describe("extension", function () {
   })
 
   it("should log workspace directory in output", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -148,8 +149,9 @@ describe("extension", function () {
     const { resolve } = await import("node:path")
     const content = readFileSync(resolve(root, logs[0]), "utf-8")
 
-    assert.ok(content.includes("OpenCode dir:"), "Log missing 'OpenCode dir:' line")
-    assert.ok(!content.includes("OpenCode dir: (empty)"), "Directory is empty - workspace folder not detected")
+    assert.ok(content.includes("spawn cwd:"), "Log missing 'spawn cwd:' line")
+    assert.ok(content.includes("link() dir:"), "Log missing 'link() dir:' line")
+    assert.ok(!content.includes("link() dir: (empty)"), "Directory is empty - workspace folder not detected")
 
     const folders = vscode.workspace.workspaceFolders
     if (folders && folders.length > 0) {
@@ -161,11 +163,11 @@ describe("extension", function () {
       )
     }
 
-    assert.ok(content.includes("OpenCode server: http"), "Log missing server URL")
+    assert.ok(content.includes("link() url: http"), "Log missing server URL")
   })
 
   it("should have current project matching workspace absolute path", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -184,7 +186,8 @@ describe("extension", function () {
     const path = await fetch(`http://127.0.0.1:${PORT}/path?directory=${encodeURIComponent(dir)}`)
     assert.equal(path.ok, true)
     const pathBody = (await path.json()) as { directory?: string }
-    assert.equal(realpathSync(pathBody.directory!), dir, `/path directory: ${pathBody.directory} != ${dir}`)
+    assert.ok(pathBody.directory, `No /path directory: ${JSON.stringify(pathBody)}`)
+    assert.equal(realpathSync(pathBody.directory), dir, `/path directory: ${pathBody.directory} != ${dir}`)
 
     const proj = await fetch(`http://127.0.0.1:${PORT}/project/current?directory=${encodeURIComponent(dir)}`)
     assert.equal(proj.ok, true, `GET /project/current failed: ${proj.status}`)
@@ -200,7 +203,7 @@ describe("extension", function () {
   })
 
   it("should list sessions for current project", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -221,7 +224,7 @@ describe("extension", function () {
   })
 
   it("should create and retrieve a session in current project", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -258,7 +261,7 @@ describe("extension", function () {
   })
 
   it("should list projects including current workspace", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -290,7 +293,7 @@ describe("extension", function () {
   })
 
   it("should create project idempotently via project.current", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -314,13 +317,15 @@ describe("extension", function () {
     const b = (await second.json()) as { id?: string; worktree?: string }
 
     assert.equal(a.id, b.id, `ID changed: ${a.id} → ${b.id}`)
-    assert.equal(realpathSync(a.worktree!), realpathSync(b.worktree!), "worktree changed")
+    assert.ok(a.worktree, `1st call: no worktree ${JSON.stringify(a)}`)
+    assert.ok(b.worktree, `2nd call: no worktree ${JSON.stringify(b)}`)
+    assert.equal(realpathSync(a.worktree), realpathSync(b.worktree), "worktree changed")
 
     console.log(`    → Idempotent: ${a.id} == ${b.id}`)
   })
 
   it("should serve SPA HTML at base64 dir route", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
@@ -345,7 +350,7 @@ describe("extension", function () {
   })
 
   it("should return HTML from web UI root", async function () {
-    if (!existsSync(BIN)) {
+    if (!BIN) {
       this.skip()
       return
     }
