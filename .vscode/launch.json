@@ -2,7 +2,20 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      "name": "Run Extension (Fresh Folder)",
+      "type": "extensionHost",
+      "request": "launch",
+      "preLaunchTask": "fresh-workspace",
+      "args": [
+        "/tmp/opencode-dev-test",
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--user-data-dir=/tmp/opencode-dev-userdata"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "sourceMaps": true
+    },
+    {
+      "name": "Run Extension (opencode)",
       "type": "extensionHost",
       "request": "launch",
       "preLaunchTask": "npm: build",
@@ -12,21 +25,6 @@
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "sourceMaps": true
-    },
-    {
-      "name": "Run Extension (Fresh Folder)",
-      "type": "extensionHost",
-      "request": "launch",
-      "preLaunchTask": "fresh-workspace",
-      "args": [
-        "/tmp/opencode-dev-test",
-        "--extensionDevelopmentPath=${workspaceFolder}"
-      ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "sourceMaps": true,
-      "env": {
-        "OPENCODE_DEV_PORT": "58888"
-      }
     }
   ]
 }

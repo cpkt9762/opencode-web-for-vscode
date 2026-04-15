@@ -28,11 +28,16 @@
       "problemMatcher": []
     },
     {
-      "label": "fresh-workspace",
+      "label": "fresh-workspace:init",
       "type": "shell",
-      "command": "rm -rf /tmp/opencode-dev-test && mkdir -p /tmp/opencode-dev-test && git -C /tmp/opencode-dev-test init && bun run build",
-      "group": "build",
+      "command": "/bin/bash -c 'rm -rf /tmp/opencode-dev-test && mkdir -p /tmp/opencode-dev-test && git -C /tmp/opencode-dev-test init && mkdir -p /tmp/opencode-dev-test/.vscode && echo \"{\\\"opencode.port\\\": 58888, \\\"opencode.autoStart\\\": true}\" > /tmp/opencode-dev-test/.vscode/settings.json'",
       "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "fresh-workspace",
+      "dependsOn": ["fresh-workspace:init", "npm: build"],
+      "dependsOrder": "sequence",
       "problemMatcher": []
     }
   ]
