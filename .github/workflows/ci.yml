@@ -14,7 +14,7 @@ jobs:
       - run: bun run test
       - name: Install OpenCode CLI
         run: |
-          npm install -g opencode-ai@latest
+          npm install -g opencode-ai@1.4.6
           ln -sf "$(which opencode)" /usr/local/bin/opencode-cli
       - name: E2E Tests
         run: xvfb-run -a node out/test/e2e/runTest.js
