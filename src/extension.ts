@@ -5,7 +5,7 @@ import { findBinary } from "./process/discover.js"
 import { ProcessManager } from "./process/manager.js"
 import { createClient, updateDirectory } from "./sdk/client.js"
 import { start as startSpa } from "./spa/server.js"
-import { getDirectory, onDirectoryChange } from "./utils/workspace.js"
+import { currentFolder } from "./utils/workspace.js"
 import { OpenCodeLensProvider } from "./views/codelens.js"
 import { showPermission, showQuestion } from "./views/dialogs.js"
 import { DiffProvider, scheme } from "./views/diff.js"
@@ -152,7 +152,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const trace = (msg: string) => {
     const line = `[${new Date().toISOString()}] ${msg}`
     output.appendLine(line)
-    appendFileSync(log, line + "\n")
+    appendFileSync(log, `${line}\n`)
   }
 
   const folders = vscode.workspace.workspaceFolders
@@ -178,6 +178,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let bridge: MessageBridge | null = null
   let loop: ReturnType<typeof setInterval> | undefined
   let busy = false
+  let root = ""
   let subs: vscode.Disposable[] = []
 
   const seen = new Set<string>()
@@ -187,10 +188,20 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!item || typeof item !== "object") return null
     return item as Raw
   }
-  const workspace = (item: vscode.TextEditor | undefined) => {
-    const uri = item?.document.uri
-    if (!uri) return
-    return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath
+  const slug = (input: string) =>
+    Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+  const check = async (dir: string) => {
+    const url = manager.getUrl()
+    if (!url || !sdk) return { has: false, url }
+
+    const res = await fetch(new URL("/project", url), {
+      headers: { Authorization: sdk.auth },
+    }).catch(() => null)
+    const list = (await res?.json().catch(() => [])) as Array<{ worktree?: string }> | null
+    return {
+      has: Array.isArray(list) && list.some((item) => item.worktree === dir),
+      url,
+    }
   }
 
   const webview = new OpenCodeWebviewProvider({
@@ -364,61 +375,54 @@ export async function activate(context: vscode.ExtensionContext) {
     loop.unref?.()
   }
 
-  const sync = async (next: string | undefined) => {
-    if (!next || next === dir) return
-    dir = next
+  const sync = async (next: string | undefined, force?: boolean) => {
+    const target = next ?? ""
+    if (!force && target === dir) return
+    dir = target
 
-    const cfg = sdk
-    if (!cfg) return
+    if (!sdk) return
 
-    await updateDirectory(cfg, next)
-      .then((item) => {
-        sdk = item
-        sessions.refresh()
-        providers.refresh()
-      })
-      .catch((err) => {
+    sessions.refresh()
+    providers.refresh()
+
+    if (!dir) {
+      webview.setUrl("about:blank")
+      return
+    }
+
+    webview.setState("loading")
+
+    const item = await check(dir)
+    if (!item.url) return
+
+    if (item.has) {
+      const cfg = await updateDirectory(sdk, dir).catch((err) => {
         output.appendLine(`Directory update failed: ${msg(err)}`)
+        return null
       })
+      if (!cfg) return
+
+      sdk = cfg
+      const web = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
+      const base = web || root || item.url
+      if (base) webview.setUrl(`${base}/${slug(dir)}`)
+      return
+    }
+
+    webview.setState("no-project", { folder: dir })
   }
 
   const link = async (url: string, password: string) => {
-    dir = dir || ((await getDirectory()) ?? "")
+    dir = currentFolder() ?? ""
     trace(`link() dir: ${dir || "(empty)"}`)
     trace(`link() url: ${url}`)
     trace(`link() password: ${password ? "(set)" : "(none)"}`)
     sdk = await createClient({
-      directory: dir,
+      directory: "",
       password,
       url,
     })
-    trace(`SDK client created with directory: ${dir}`)
-
-    if (dir) {
-      const raw = sdk.client as unknown as Record<string, unknown>
-      const project = raw.project as
-        | {
-            current?: (opts?: Record<string, unknown>) => Promise<unknown>
-            initGit?: (opts?: Record<string, unknown>) => Promise<unknown>
-          }
-        | undefined
-      if (project?.current) {
-        const result = (await project.current().catch((e: unknown) => {
-          trace(`project.current() ERROR: ${e}`)
-          return null
-        })) as { data?: { id?: string } } | null
-        trace(`project.current() result: ${JSON.stringify(result).slice(0, 200)}`)
-
-        if (result?.data?.id === "global" && project.initGit) {
-          trace(`project is global, calling initGit...`)
-          const git = await project.initGit().catch((e: unknown) => {
-            trace(`project.initGit() ERROR: ${e}`)
-            return null
-          })
-          trace(`project.initGit() result: ${JSON.stringify(git).slice(0, 200)}`)
-        }
-      }
-    }
+    trace(`SDK client created with directory: (empty)`)
 
     events.stop()
     await events.start()
@@ -426,10 +430,33 @@ export async function activate(context: vscode.ExtensionContext) {
     trace("[link] calling sessions.refresh()")
     sessions.refresh()
     providers.refresh()
-    const slug = dir
-      ? Buffer.from(dir).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
-      : ""
 
+    if (!dir) {
+      root = ""
+      webview.setUrl("about:blank")
+      void pull()
+      return
+    }
+
+    webview.setState("loading")
+
+    const item = await check(dir)
+    if (!item.url) return
+
+    if (!item.has) {
+      root = ""
+      webview.setState("no-project", { folder: dir })
+      void pull()
+      return
+    }
+
+    const cfg = await updateDirectory(sdk, dir).catch((err) => {
+      output.appendLine(`Directory update failed: ${msg(err)}`)
+      return null
+    })
+    if (!cfg) return
+
+    sdk = cfg
     let base = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
     if (!base) {
       const dist = vscode.Uri.joinPath(context.extensionUri, "spa").fsPath
@@ -446,15 +473,32 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }
 
+    root = base || url
+
     const last = context.workspaceState.get<string>("lastSessionId")
     const session = last ? `/session/${last}` : ""
-    const target = slug ? `${base || url}/${slug}${session}` : base || url
+    const target = `${root}/${slug(dir)}${session}`
     trace(`iframe URL: ${target} (lastSession=${last ?? "none"})`)
-    trace(`base64 slug: ${slug || "(empty)"}`)
+    trace(`base64 slug: ${slug(dir)}`)
     webview.setUrl(target)
-    webview.setState("ready")
-    trace(`webview setState: ready`)
     void pull()
+  }
+
+  const create = async () => {
+    if (!manager.getStatus() || !sdk) {
+      void vscode.window.showErrorMessage("OpenCode server is not running")
+      return
+    }
+
+    const raw = sdk.client as unknown as Record<string, unknown>
+    const proj = raw.project as { initGit?: () => Promise<unknown> } | undefined
+
+    try {
+      await proj?.initGit?.()
+      await sync(dir, true)
+    } catch {
+      void vscode.window.showErrorMessage("Failed to create project")
+    }
   }
 
   const raw = webview.resolveWebviewView.bind(webview)
@@ -465,9 +509,9 @@ export async function activate(context: vscode.ExtensionContext) {
     bridge = new MessageBridge(view)
     subs = [
       bridge,
-      bridge.onMessage("opencode-web.diag" as any, (data: any) => {
-        const label = data?.label ?? "?"
-        const detail = data?.detail ?? ""
+      bridge.onMessage("opencode-web.diag", (data: unknown) => {
+        const label = obj(data) && typeof data.label === "string" ? data.label : "?"
+        const detail = obj(data) && typeof data.detail === "string" ? data.detail : ""
         trace(`[DIAG:${label}] ${detail}`)
       }),
       bridge.onMessage(MSG.frame_ready, () => {
@@ -478,6 +522,9 @@ export async function activate(context: vscode.ExtensionContext) {
       }),
       bridge.onMessage(MSG.request_question, () => {
         void pull()
+      }),
+      bridge.onMessage("opencode-web.create-project", () => {
+        void create()
       }),
       bridge.onMessage(MSG.open_file, (input) => {
         void open(input)
@@ -520,8 +567,11 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(scheme, diff))
   context.subscriptions.push(vscode.languages.registerCodeLensProvider({ scheme: "file" }, lens))
   context.subscriptions.push(events)
-  context.subscriptions.push(onDirectoryChange((next) => void sync(next)))
-  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor((item) => void sync(workspace(item))))
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void sync(currentFolder())
+    }),
+  )
   context.subscriptions.push(
     manager.onStatusChange((status) => {
       output.appendLine(`OpenCode status: ${status}`)
@@ -530,12 +580,9 @@ export async function activate(context: vscode.ExtensionContext) {
         const url = manager.getUrl()
         const password = manager.getPassword()
 
-        const slug = dir
-          ? Buffer.from(dir).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
-          : ""
         const web = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
-        const base = web || url
-        if (base) webview.setUrl(slug ? `${base}/${slug}` : base)
+        const base = web || root || url
+        if (base) webview.setUrl(dir ? `${base}/${slug(dir)}` : base)
         if (!url || !password) return
 
         void link(url, password)

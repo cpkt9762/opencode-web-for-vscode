@@ -1,11 +1,15 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type * as vscode from "vscode"
 
 const extDir = mkdtempSync(join(tmpdir(), "oc-ext-test-"))
+const nativeFetch = globalThis.fetch
 afterAll(() => rmSync(extDir, { recursive: true, force: true }))
+afterAll(() => {
+  if (nativeFetch) globalThis.fetch = nativeFetch
+})
 
 const createOutputChannel = vi.fn(() => ({
   appendLine: vi.fn(),
@@ -17,21 +21,47 @@ const registerTreeDataProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const registerTextDocumentContentProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const registerCodeLensProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const onDidChangeConfiguration = vi.fn(() => ({ dispose: vi.fn() }))
-const onDidChangeActiveTextEditor = vi.fn((cb: (editor: vscode.TextEditor | undefined) => unknown) => {
-  state.editor = cb
+const onDidChangeWorkspaceFolders = vi.fn((cb: () => unknown) => {
+  state.work = cb
+  return { dispose: vi.fn() }
+})
+const onDidChangeActiveTextEditor = vi.fn((_cb: (editor: vscode.TextEditor | undefined) => unknown) => {
   return { dispose: vi.fn() }
 })
 const getConfiguration = vi.fn(() => ({
   get: vi.fn((key: string, value: unknown) => {
     if (key === "port") return 4096
     if (key === "autoStart") return true
+    if (key === "webUrl") return "http://localhost:4096"
     return value
   }),
 }))
 
 const made: Array<{ auth: string; client: Record<string, unknown>; dir: string; url: string }> = []
+const projs: Array<{ initGit: { mock: { calls: unknown[][] } } }> = []
+
+function res(data: unknown) {
+  return {
+    json: vi.fn(async () => data),
+  }
+}
+
+function slug(dir: string) {
+  return Buffer.from(dir).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+}
+
+async function tick() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
 
 function sdk(dir: string) {
+  const project = {
+    current: vi.fn(async () => ({ data: { id: "global" } })),
+    initGit: vi.fn(async () => ({})),
+  }
   const item = {
     auth: "Basic test",
     client: {
@@ -56,6 +86,7 @@ function sdk(dir: string) {
         diff: vi.fn(async () => ({ data: [] })),
         list: vi.fn(async () => ({ data: [] })),
       },
+      project,
       tui: {
         appendPrompt: vi.fn(async () => ({})),
       },
@@ -63,6 +94,7 @@ function sdk(dir: string) {
     dir,
     url: "http://localhost:4096",
   }
+  projs.push({ initGit: project.initGit })
   made.push(item)
   return item
 }
@@ -78,15 +110,21 @@ const findBinary = vi.fn(() => ({
 
 const createStatusBar = vi.fn(() => ({ dispose: vi.fn() }))
 const registerCommands = vi.fn()
+const currentFolder = vi.fn((): string | undefined => "/workspace")
 const getDirectory = vi.fn(async () => "/workspace")
-const onDirectoryChange = vi.fn(() => ({ dispose: vi.fn() }))
+const onDirectoryChange = vi.fn((_cb: (dir: string | undefined) => unknown) => {
+  return { dispose: vi.fn() }
+})
 const showPermission = vi.fn(async () => "once")
 const showQuestion = vi.fn(async () => null)
+const showErrorMessage = vi.fn()
+const fetchMock = vi.fn(async () => res([{ worktree: "/workspace" }]))
 
 const managers: unknown[] = []
 const views: unknown[] = []
 const sessions: unknown[] = []
 const providers: unknown[] = []
+const msgs: Array<Map<string, (payload: unknown) => unknown>> = []
 const events: Array<{
   dispose: ReturnType<typeof vi.fn>
   start: ReturnType<typeof vi.fn>
@@ -109,6 +147,7 @@ const ProcessManager = vi.fn(() => {
 const OpenCodeWebviewProvider = vi.fn(() => {
   const item = {
     resolveWebviewView: vi.fn(),
+    setState: vi.fn(),
     setUrl: vi.fn(),
   }
   views.push(item)
@@ -145,15 +184,22 @@ const EventListener = vi.fn(() => {
   return item
 })
 
-const MessageBridge = vi.fn(() => ({
-  dispose: vi.fn(),
-  onMessage: vi.fn(() => ({ dispose: vi.fn() })),
-  post: vi.fn(async () => true),
-}))
+const MessageBridge = vi.fn(() => {
+  const map = new Map<string, (payload: unknown) => unknown>()
+  msgs.push(map)
+  return {
+    dispose: vi.fn(),
+    onMessage: vi.fn((type: string, cb: (payload: unknown) => unknown) => {
+      map.set(type, cb)
+      return { dispose: vi.fn(() => map.delete(type)) }
+    }),
+    post: vi.fn(async () => true),
+  }
+})
 
 const state = {
   dir: "/workspace",
-  editor: undefined as ((editor: vscode.TextEditor | undefined) => unknown) | undefined,
+  work: undefined as (() => unknown) | undefined,
 }
 
 vi.mock("vscode", () => ({
@@ -167,19 +213,23 @@ vi.mock("vscode", () => ({
   },
   Uri: {
     file: vi.fn((path: string) => ({ fsPath: path })),
+    joinPath: vi.fn((base: { fsPath: string }, ...parts: string[]) => ({ fsPath: join(base.fsPath, ...parts) })),
   },
   window: {
     createOutputChannel,
     onDidChangeActiveTextEditor,
     registerTreeDataProvider,
     registerWebviewViewProvider,
+    showErrorMessage,
     showWarningMessage: vi.fn(),
     showTextDocument: vi.fn(async () => undefined),
   },
   workspace: {
+    workspaceFolders: undefined,
     getConfiguration,
     getWorkspaceFolder: vi.fn(() => ({ uri: { fsPath: state.dir } })),
     onDidChangeConfiguration,
+    onDidChangeWorkspaceFolders,
     openTextDocument: vi.fn(async () => ({})),
     registerTextDocumentContentProvider,
   },
@@ -211,29 +261,43 @@ vi.mock("./webview/bridge.js", () => ({
   },
 }))
 vi.mock("./views/dialogs.js", () => ({ showPermission, showQuestion }))
-vi.mock("./utils/workspace.js", () => ({ getDirectory, onDirectoryChange }))
+vi.mock("./utils/workspace.js", () => ({ currentFolder, getDirectory, onDirectoryChange }))
 
 function ctx() {
   return {
     subscriptions: [] as vscode.Disposable[],
     extensionPath: extDir,
     extensionUri: { fsPath: extDir },
+    workspaceState: {
+      get: vi.fn(() => undefined),
+      update: vi.fn(async () => undefined),
+    },
   } as unknown as vscode.ExtensionContext
 }
 
 describe("extension", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.resetModules()
     made.length = 0
+    projs.length = 0
     managers.length = 0
     views.length = 0
     sessions.length = 0
     providers.length = 0
     events.length = 0
+    msgs.length = 0
     state.dir = "/workspace"
-    onDidChangeActiveTextEditor.mockImplementation((cb: (editor: vscode.TextEditor | undefined) => unknown) => {
-      state.editor = cb
+    state.work = undefined
+    currentFolder.mockReturnValue("/workspace")
+    getDirectory.mockResolvedValue("/workspace")
+    fetchMock.mockReset()
+    fetchMock.mockImplementation(async () => res([{ worktree: "/workspace" }]))
+    Reflect.set(globalThis, "fetch", fetchMock)
+    onDidChangeWorkspaceFolders.mockImplementation((cb: () => unknown) => {
+      state.work = cb
+      return { dispose: vi.fn() }
+    })
+    onDidChangeActiveTextEditor.mockImplementation((_cb: (editor: vscode.TextEditor | undefined) => unknown) => {
       return { dispose: vi.fn() }
     })
   })
@@ -283,31 +347,161 @@ describe("extension", () => {
     expect(createStatusBar).toHaveBeenCalledOnce()
   })
 
-  it("updates sdk directory when active editor changes workspace", async () => {
+  it("sync updates webview URL when folder changes to existing project", async () => {
     const { activate } = await import("./extension.js")
 
     await activate(ctx())
 
-    expect(onDirectoryChange).toHaveBeenCalledOnce()
+    expect(onDidChangeWorkspaceFolders).toHaveBeenCalledOnce()
+
+    const view = views[0] as { setState: ReturnType<typeof vi.fn>; setUrl: ReturnType<typeof vi.fn> }
+    fetchMock.mockImplementationOnce(async () => res([{ worktree: "/next" }]))
+    updateDirectory.mockClear()
+    view.setState.mockClear()
+    view.setUrl.mockClear()
 
     state.dir = "/next"
-    await state.editor?.({ document: { uri: { fsPath: "/next/file.ts" } } } as vscode.TextEditor)
-    await Promise.resolve()
+    currentFolder.mockReturnValue("/next")
+    state.work?.()
+    await tick()
 
     expect(updateDirectory).toHaveBeenCalledTimes(1)
-    expect(updateDirectory).toHaveBeenNthCalledWith(1, made[0], "/next")
+    expect(updateDirectory).toHaveBeenNthCalledWith(1, expect.anything(), "/next")
+    expect(view.setState).toHaveBeenNthCalledWith(1, "loading")
+    expect(view.setUrl).toHaveBeenCalledWith(`http://localhost:4096/${slug("/next")}`)
+  })
 
-    await state.editor?.({ document: { uri: { fsPath: "/next/other.ts" } } } as vscode.TextEditor)
-    await Promise.resolve()
+  it("sync sets no-project state when folder has no opencode project", async () => {
+    const { activate } = await import("./extension.js")
 
-    expect(updateDirectory).toHaveBeenCalledTimes(1)
+    await activate(ctx())
 
-    state.dir = "/other"
-    await state.editor?.({ document: { uri: { fsPath: "/other/file.ts" } } } as vscode.TextEditor)
-    await Promise.resolve()
+    const view = views[0] as { setState: ReturnType<typeof vi.fn>; setUrl: ReturnType<typeof vi.fn> }
+    fetchMock.mockImplementationOnce(async () => res([]))
+    updateDirectory.mockClear()
+    view.setState.mockClear()
+    view.setUrl.mockClear()
 
-    expect(updateDirectory).toHaveBeenCalledTimes(2)
-    expect(updateDirectory).toHaveBeenNthCalledWith(2, made[1], "/other")
+    state.dir = "/fresh"
+    currentFolder.mockReturnValue("/fresh")
+    state.work?.()
+    await tick()
+
+    expect(updateDirectory).not.toHaveBeenCalled()
+    expect(view.setState).toHaveBeenNthCalledWith(1, "loading")
+    expect(view.setState).toHaveBeenNthCalledWith(2, "no-project", { folder: "/fresh" })
+    expect(view.setUrl).not.toHaveBeenCalled()
+  })
+
+  it("sync shows placeholder when no folder open", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    const view = views[0] as { setState: ReturnType<typeof vi.fn>; setUrl: ReturnType<typeof vi.fn> }
+    fetchMock.mockClear()
+    updateDirectory.mockClear()
+    view.setState.mockClear()
+    view.setUrl.mockClear()
+
+    currentFolder.mockImplementation(() => undefined)
+    state.work?.()
+    await tick()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(updateDirectory).not.toHaveBeenCalled()
+    expect(view.setState).not.toHaveBeenCalled()
+    expect(view.setUrl).toHaveBeenCalledWith("about:blank")
+  })
+
+  it("sync skips when folder unchanged", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    const view = views[0] as { setState: ReturnType<typeof vi.fn>; setUrl: ReturnType<typeof vi.fn> }
+    fetchMock.mockClear()
+    updateDirectory.mockClear()
+    view.setState.mockClear()
+    view.setUrl.mockClear()
+
+    currentFolder.mockReturnValue("/workspace")
+    state.work?.()
+    await tick()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(updateDirectory).not.toHaveBeenCalled()
+    expect(view.setState).not.toHaveBeenCalled()
+    expect(view.setUrl).not.toHaveBeenCalled()
+  })
+
+  it("link does not auto-call initGit", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    expect(projs.some((item) => item.initGit.mock.calls.length > 0)).toBe(false)
+  })
+
+  it("link shows no-project state for unregistered folder", async () => {
+    const { activate } = await import("./extension.js")
+
+    currentFolder.mockReturnValue("/fresh")
+    fetchMock.mockImplementation(async () => res([]))
+
+    await activate(ctx())
+
+    const view = views[0] as { setState: ReturnType<typeof vi.fn> }
+
+    expect(currentFolder).toHaveBeenCalled()
+    expect(getDirectory).not.toHaveBeenCalled()
+    expect(view.setState).toHaveBeenCalledWith("no-project", { folder: "/fresh" })
+  })
+
+  it("T15 create-project message calls initGit and forces reload", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    const view = views[0] as {
+      resolveWebviewView: (view: vscode.WebviewView) => void
+      setState: ReturnType<typeof vi.fn>
+      setUrl: ReturnType<typeof vi.fn>
+    }
+    view.resolveWebviewView({} as vscode.WebviewView)
+    updateDirectory.mockClear()
+    view.setState.mockClear()
+    view.setUrl.mockClear()
+    const init = projs.at(-1)?.initGit
+
+    await msgs[0]?.get("opencode-web.create-project")?.(undefined)
+    await tick()
+
+    expect(init).toHaveBeenCalledTimes(1)
+    expect(updateDirectory).toHaveBeenCalledWith(expect.anything(), "/workspace")
+    expect(view.setState).toHaveBeenCalledWith("loading")
+    expect(view.setUrl).toHaveBeenCalledWith(`http://localhost:4096/${slug("/workspace")}`)
+    expect(showErrorMessage).not.toHaveBeenCalled()
+  })
+
+  it("T16 workspace folder change uses currentFolder without interactive listeners", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+
+    expect(onDidChangeWorkspaceFolders).toHaveBeenCalledOnce()
+    expect(onDidChangeActiveTextEditor).not.toHaveBeenCalled()
+    expect(onDirectoryChange).not.toHaveBeenCalled()
+
+    currentFolder.mockClear()
+    getDirectory.mockClear()
+    currentFolder.mockReturnValue("/next")
+    state.dir = "/next"
+    state.work?.()
+    await tick()
+
+    expect(currentFolder).toHaveBeenCalledOnce()
+    expect(getDirectory).not.toHaveBeenCalled()
   })
 
   it("deactivate is callable", async () => {

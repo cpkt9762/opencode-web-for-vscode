@@ -27,6 +27,12 @@ async function pick(folders: readonly vscode.WorkspaceFolder[]) {
   return pick?.folder.uri.fsPath
 }
 
+export function currentFolder(): string | undefined {
+  const folders = vscode.workspace.workspaceFolders
+  if (!folders || folders.length === 0) return undefined
+  return folders[0].uri.fsPath
+}
+
 export async function getDirectory() {
   return pick(vscode.workspace.workspaceFolders ?? [])
 }

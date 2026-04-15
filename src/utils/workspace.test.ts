@@ -1,52 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("vscode", () => {
-  const showQuickPick = vi.fn()
-  const showWarningMessage = vi.fn()
-  const state = {
+const mocks = {
+  showQuickPick: vi.fn(),
+  showWarningMessage: vi.fn(),
+  state: {
     cb: undefined as ((e: unknown) => unknown) | undefined,
     folders: undefined as Array<{ name: string; uri: { fsPath: string } }> | undefined,
-  }
-  const onDidChangeWorkspaceFolders = vi.fn((cb: (e: unknown) => unknown) => {
-    state.cb = cb
+  },
+  onDidChangeWorkspaceFolders: vi.fn((cb: (e: unknown) => unknown) => {
+    mocks.state.cb = cb
     return { dispose: vi.fn() }
-  })
+  }),
+}
 
+vi.mock("vscode", () => {
   return {
     window: {
-      showQuickPick,
-      showWarningMessage,
+      showQuickPick: mocks.showQuickPick,
+      showWarningMessage: mocks.showWarningMessage,
     },
     workspace: {
       get workspaceFolders() {
-        return state.folders
+        return mocks.state.folders
       },
-      onDidChangeWorkspaceFolders,
+      onDidChangeWorkspaceFolders: mocks.onDidChangeWorkspaceFolders,
     },
     __mocks: {
-      onDidChangeWorkspaceFolders,
-      showQuickPick,
-      showWarningMessage,
-      state,
+      onDidChangeWorkspaceFolders: mocks.onDidChangeWorkspaceFolders,
+      showQuickPick: mocks.showQuickPick,
+      showWarningMessage: mocks.showWarningMessage,
+      state: mocks.state,
     },
   }
 })
-
-import * as vscode from "vscode"
-
-const mocks = (
-  vscode as unknown as {
-    __mocks: {
-      onDidChangeWorkspaceFolders: ReturnType<typeof vi.fn>
-      showQuickPick: ReturnType<typeof vi.fn>
-      showWarningMessage: ReturnType<typeof vi.fn>
-      state: {
-        cb: ((e: unknown) => unknown) | undefined
-        folders: Array<{ name: string; uri: { fsPath: string } }> | undefined
-      }
-    }
-  }
-).__mocks
 
 function folder(name: string, fsPath: string) {
   return { name, uri: { fsPath } }
@@ -99,6 +85,32 @@ describe("workspace", () => {
     await expect(getDirectory()).resolves.toBeUndefined()
     expect(mocks.showWarningMessage).toHaveBeenCalledWith("OpenCode: No workspace folder open")
     expect(mocks.showQuickPick).not.toHaveBeenCalled()
+  })
+
+  it("currentFolder returns path when single folder open", async () => {
+    mocks.state.folders = [folder("app", "/app")]
+
+    const { currentFolder } = await import("./workspace.js")
+
+    expect(currentFolder()).toBe("/app")
+    expect(mocks.showQuickPick).not.toHaveBeenCalled()
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled()
+  })
+
+  it("currentFolder returns first folder when multiple folders open", async () => {
+    mocks.state.folders = [folder("app", "/app"), folder("lib", "/lib")]
+
+    const { currentFolder } = await import("./workspace.js")
+
+    expect(currentFolder()).toBe("/app")
+    expect(mocks.showQuickPick).not.toHaveBeenCalled()
+  })
+
+  it("currentFolder returns undefined when no folders open", async () => {
+    const { currentFolder } = await import("./workspace.js")
+
+    expect(currentFolder()).toBeUndefined()
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled()
   })
 
   it("calls callback when workspace folders change", async () => {

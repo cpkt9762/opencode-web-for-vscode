@@ -16,6 +16,11 @@ function view() {
   } as unknown as vscode.WebviewView
 }
 
+function set(provider: OpenCodeWebviewProvider, state: string, opts?: { folder?: string }) {
+  const fn = Reflect.get(provider, "setState") as (state: string, opts?: { folder?: string }) => void
+  fn.call(provider, state, opts)
+}
+
 describe("OpenCodeWebviewProvider", () => {
   it("resolveWebviewView sets enableScripts", () => {
     const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
@@ -91,6 +96,61 @@ describe("OpenCodeWebviewProvider", () => {
 
     expect(item.webview.html).not.toBe(prev)
     expect(item.webview.html).toContain('iframe id="opencode-frame" src="http://localhost:4097"')
+  })
+
+  it('T4: setState("no-project") renders create-project UI', () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    set(provider, "no-project")
+
+    expect(item.webview.html).toContain('data-state="no-project"')
+    expect(item.webview.html).toContain("Create OpenCode Project")
+  })
+
+  it('T5: setState("no-project") hides iframe', () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    set(provider, "no-project")
+
+    expect(item.webview.html).toContain('data-state="no-project"')
+    expect(item.webview.html).toContain("visibility:hidden")
+  })
+
+  it('T6: setState("no-project") shows folder path', () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    set(provider, "no-project", { folder: "/test/dir" })
+
+    expect(item.webview.html).toContain("/test/dir")
+  })
+
+  it('T7: setState from "no-project" to "loading" re-renders correctly', () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    set(provider, "no-project")
+    set(provider, "loading")
+
+    expect(item.webview.html).toContain('data-state="loading"')
+    expect(item.webview.html).toContain('id="spin" aria-hidden="true"></div>')
+    expect(item.webview.html).toContain('id="noproj" hidden')
+  })
+
+  it('T8: setUrl("about:blank") shows "open a folder" message', () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const item = view()
+
+    provider.resolveWebviewView(item)
+    provider.setUrl("about:blank")
+
+    expect(item.webview.html).toContain("Open a folder in VSCode to get started")
   })
 
   it("webview script contains navigate handler", () => {
