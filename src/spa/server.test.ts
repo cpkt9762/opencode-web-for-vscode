@@ -1,9 +1,9 @@
-import { createServer, request, type Server } from "node:http"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { createServer, request, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { start, API } from "./server.js"
+import { API, start } from "./server.js"
 
 const tmp = mkdtempSync(join(tmpdir(), "spa-server-"))
 const html = `<!doctype html><html><head><title>Test</title></head><body></body></html>`
@@ -14,6 +14,7 @@ writeFileSync(join(tmp, "assets", "app.js"), "console.log(1)")
 
 let backend: Server
 let backendPort: number
+let backendUrl: string
 let spa: { server: Server; port: number }
 
 function get(port: number, path: string): Promise<{ status: number; body: string; type: string }> {
@@ -42,10 +43,11 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => backend.listen(0, "127.0.0.1", resolve))
   const addr = backend.address()
   backendPort = typeof addr === "object" && addr ? addr.port : 0
+  backendUrl = `http://127.0.0.1:${backendPort}`
 
   spa = await start({
     dist: tmp,
-    backend: `http://127.0.0.1:${backendPort}`,
+    backend: backendUrl,
   })
 })
 
@@ -120,6 +122,25 @@ describe("spa static fallback", () => {
     const res = await get(spa.port, "/assets/app.js")
     expect(res.type).toContain("application/javascript")
     expect(res.body).toBe("console.log(1)")
+  })
+
+  it("serves a health route for compatible reuse", async () => {
+    const res = await get(spa.port, "/opencode-spa-health")
+    expect(res.type).toContain("application/json")
+    expect(JSON.parse(res.body)).toEqual({ backend: `${backendUrl}/`, ok: true })
+  })
+
+  it("reuses the stable port when a compatible proxy already exists", async () => {
+    const extra = await start({
+      dist: tmp,
+      backend: backendUrl,
+    })
+
+    try {
+      expect(extra.port).toBe(spa.port)
+    } finally {
+      extra.server.close()
+    }
   })
 })
 

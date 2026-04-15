@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as wait } from "node:timers/promises"
@@ -19,6 +20,7 @@ type Cfg = {
 type Win = {
   app: ElectronApplication
   page: Page
+  user: string
 }
 
 function slug(input: string) {
@@ -45,10 +47,10 @@ async function pick(page: Page, list: string[], ms = 60000) {
   throw new Error(`Timed out waiting for selector: ${list.join(" | ")}`)
 }
 
-async function open(cfg: Cfg, dir: string): Promise<Win> {
+async function open(cfg: Cfg, dir?: string): Promise<Win> {
   const user = mkdtempSync(join(cfg.root, "user-"))
   const args = [
-    dir,
+    ...(dir ? [dir] : []),
     `--extensions-dir=${cfg.ext}`,
     `--user-data-dir=${user}`,
     "--disable-gpu",
@@ -74,7 +76,33 @@ async function open(cfg: Cfg, dir: string): Promise<Win> {
   })
   const page = await app.firstWindow()
   await page.waitForSelector(".monaco-workbench", { timeout: 60000 })
-  return { app, page }
+  return { app, page, user }
+}
+
+function swap(cfg: Cfg, win: Win, dir: string) {
+  const args = [
+    dir,
+    `--extensions-dir=${cfg.ext}`,
+    `--user-data-dir=${win.user}`,
+    "--disable-gpu",
+    "--locale=en-US",
+    "--disable-workspace-trust",
+    "--reuse-window",
+    "--skip-release-notes",
+    "--skip-welcome",
+  ]
+
+  if (process.platform === "linux") args.push("--no-sandbox")
+
+  execFileSync(cfg.code, args, {
+    cwd: cfg.root,
+    env: {
+      ...process.env,
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+    },
+    stdio: "ignore",
+  })
 }
 
 async function icon(page: Page) {
@@ -254,13 +282,53 @@ function add(mocha: Mocha, cfg: Cfg) {
   )
 
   suite.addTest(
-    new Mocha.Test("multiple VSCode instances share the same server port", async () => {
+    new Mocha.Test("switching workspace folder updates webview URL", async () => {
+      const win = await open(cfg, cfg.fresh)
+
+      try {
+        const one = await show(win.page)
+        await expect(one.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
+        const src1 = await url(one, (item) => item.pathname === "/")
+        assert.equal(src1.pathname, "/")
+
+        swap(cfg, win, cfg.ready)
+        await win.page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => null)
+
+        const two = await show(win.page, 120000)
+        const src2 = await url(two, (item) => item.pathname === `/${slug(cfg.ready)}`, 120000)
+        assert.equal(src2.pathname, `/${slug(cfg.ready)}`)
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
+
+  suite.addTest(
+    new Mocha.Test("no folder open shows placeholder state", async () => {
+      const win = await open(cfg)
+
+      try {
+        const frame = await show(win.page)
+        await expect(frame.locator("body")).toHaveAttribute("data-state", "error", { timeout: 60000 })
+        await expect(frame.locator("#shell")).toBeVisible()
+        await expect(frame.locator("#opencode-frame")).toBeHidden()
+
+        const item = await url(frame, (item) => item.href === "about:blank")
+        assert.equal(item.href, "about:blank")
+      } finally {
+        await shut(win)
+      }
+    }),
+  )
+
+  suite.addTest(
+    new Mocha.Test("multiple VSCode instances share the same server and SPA origin", async () => {
       const one = await open(cfg, cfg.fresh)
 
       try {
         const a = await show(one.page)
         await expect(a.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
-        await url(a, (item) => item.pathname === "/")
+        const src1 = await url(a, (item) => item.pathname === "/")
         await health(cfg.port, cfg.password)
         assert.doesNotThrow(() => process.kill(cfg.pid, 0), `Shared server pid ${cfg.pid} exited after first window`)
 
@@ -269,9 +337,10 @@ function add(mocha: Mocha, cfg: Cfg) {
         try {
           const b = await show(two.page)
           await expect(b.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 60000 })
-          await url(b, (item) => item.pathname === `/${slug(cfg.ready)}`)
+          const src2 = await url(b, (item) => item.pathname === `/${slug(cfg.ready)}`)
           await health(cfg.port, cfg.password)
           assert.doesNotThrow(() => process.kill(cfg.pid, 0), `Shared server pid ${cfg.pid} exited after second window`)
+          assert.equal(src1.origin, src2.origin)
         } finally {
           await shut(two)
         }
@@ -286,7 +355,7 @@ function add(mocha: Mocha, cfg: Cfg) {
       const win = await open(cfg, cfg.fresh)
 
       try {
-        const frame = await show(win.page)
+        const frame = await reveal(win.page)
         await url(frame, (item) => item.pathname === "/")
         const app = await home(frame)
         const item = app.locator("button.mt-4").first()

@@ -1,7 +1,7 @@
-import { createServer, request as req, type Server, type IncomingMessage, type ServerResponse } from "node:http"
+import { existsSync, readFileSync } from "node:fs"
+import { createServer, type IncomingMessage, request as req, type Server, type ServerResponse } from "node:http"
 import { request as httpsReq } from "node:https"
-import { readFileSync, existsSync } from "node:fs"
-import { join, extname } from "node:path"
+import { extname, join } from "node:path"
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -15,6 +15,8 @@ const MIME: Record<string, string> = {
   ".aac": "audio/aac",
   ".png": "image/png",
 }
+
+const HEALTH = "/opencode-spa-health"
 
 export const API = [
   // server.ts (control plane)
@@ -320,6 +322,63 @@ function stablePort(backend: string): number {
   return 49152 + (Math.abs(h) % 16384)
 }
 
+function shared() {
+  return {
+    close(done?: (err?: Error) => void) {
+      done?.()
+      return this as unknown as Server
+    },
+  } as unknown as Server
+}
+
+function reuse(port: number, backend: string) {
+  return new Promise<boolean>((resolve) => {
+    let live = true
+    const done = (ok: boolean) => {
+      if (!live) return
+      live = false
+      resolve(ok)
+    }
+
+    const out = req(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: HEALTH,
+        method: "GET",
+      },
+      (res) => {
+        let body = ""
+        res.on("data", (chunk: Buffer) => (body += chunk.toString()))
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            done(false)
+            return
+          }
+
+          void Promise.resolve(body)
+            .then(
+              (item) =>
+                JSON.parse(item) as {
+                  backend?: unknown
+                  ok?: unknown
+                },
+            )
+            .then((item) => done(item.ok === true && item.backend === new URL(backend).href))
+            .catch(() => done(false))
+        })
+      },
+    )
+
+    out.on("error", () => done(false))
+    out.setTimeout(1000, () => {
+      out.destroy()
+      done(false)
+    })
+    out.end()
+  })
+}
+
 export function start(opts: {
   dist: string
   backend: string
@@ -328,70 +387,93 @@ export function start(opts: {
   const backend = new URL(opts.backend)
   const index = join(opts.dist, "index.html")
   const has = existsSync(index)
-
-  const server = createServer((incoming, res) => {
-    const url = new URL(incoming.url ?? "/", "http://localhost")
-
-    if (API.some((p) => url.pathname.startsWith(p))) {
-      proxy(incoming, res, backend)
-      return
-    }
-
-    if (!has) {
-      const ext = extname(url.pathname)
-      if (ext && ext !== ".html") {
-        cdnAsset(res, url.pathname)
-        return
-      }
-      cdnHtml(res, url.pathname || "/")
-      return
-    }
-
-    const file = url.pathname === "/" ? "/index.html" : url.pathname
-    const local = join(opts.dist, file)
-
-    if (existsSync(local)) {
-      const ext = extname(local)
-      if (ext === ".html") {
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" })
-        res.end(inject(readFileSync(local, "utf-8")))
-        return
-      }
-      res.writeHead(200, {
-        "Content-Type": MIME[ext] ?? "application/octet-stream",
-        "Access-Control-Allow-Origin": "*",
-      })
-      res.end(readFileSync(local))
-      return
-    }
-
-    const ext = extname(file)
-    if (ext && ext !== ".html") {
-      cdnAsset(res, file)
-      return
-    }
-
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" })
-    res.end(inject(readFileSync(index, "utf-8")))
-  })
-
   const preferred = stablePort(opts.backend)
   const log = opts.log ?? (() => {})
 
-  return new Promise((resolve, reject) => {
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        log(`[SPA] port ${preferred} in use, falling back to random`)
-        server.listen(0, "127.0.0.1")
+  return reuse(preferred, backend.href).then((ok) => {
+    if (ok) {
+      log(`[SPA] reusing compatible proxy on port ${preferred}`)
+      return { server: shared(), port: preferred }
+    }
+
+    const server = createServer((incoming, res) => {
+      const url = new URL(incoming.url ?? "/", "http://localhost")
+
+      if (url.pathname === HEALTH) {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ backend: backend.href, ok: true }))
         return
       }
-      reject(err)
+
+      if (API.some((p) => url.pathname.startsWith(p))) {
+        proxy(incoming, res, backend)
+        return
+      }
+
+      if (!has) {
+        const ext = extname(url.pathname)
+        if (ext && ext !== ".html") {
+          cdnAsset(res, url.pathname)
+          return
+        }
+        cdnHtml(res, url.pathname || "/")
+        return
+      }
+
+      const file = url.pathname === "/" ? "/index.html" : url.pathname
+      const local = join(opts.dist, file)
+
+      if (existsSync(local)) {
+        const ext = extname(local)
+        if (ext === ".html") {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" })
+          res.end(inject(readFileSync(local, "utf-8")))
+          return
+        }
+        res.writeHead(200, {
+          "Content-Type": MIME[ext] ?? "application/octet-stream",
+          "Access-Control-Allow-Origin": "*",
+        })
+        res.end(readFileSync(local))
+        return
+      }
+
+      const ext = extname(file)
+      if (ext && ext !== ".html") {
+        cdnAsset(res, file)
+        return
+      }
+
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" })
+      res.end(inject(readFileSync(index, "utf-8")))
     })
-    server.listen(preferred, "127.0.0.1", () => {
-      const addr = server.address()
-      const port = typeof addr === "object" && addr ? addr.port : 0
-      log(`[SPA] preferred=${preferred} actual=${port} stable=${port === preferred}`)
-      resolve({ server, port })
+
+    return new Promise((resolve, reject) => {
+      server.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code !== "EADDRINUSE") {
+          reject(err)
+          return
+        }
+
+        void reuse(preferred, backend.href)
+          .then((ok) => {
+            if (ok) {
+              log(`[SPA] reusing compatible proxy on port ${preferred}`)
+              resolve({ server: shared(), port: preferred })
+              return
+            }
+
+            log(`[SPA] port ${preferred} in use, falling back to random`)
+            server.listen(0, "127.0.0.1")
+          })
+          .catch(reject)
+      })
+      server.listen(preferred, "127.0.0.1", () => {
+        const addr = server.address()
+        const port = typeof addr === "object" && addr ? addr.port : 0
+        log(`[SPA] preferred=${preferred} actual=${port} stable=${port === preferred}`)
+        resolve({ server, port })
+      })
     })
   })
 }
