@@ -1,0 +1,3 @@
+- Smoke capture can reuse the existing Playwright Electron sidebar helpers once they are extracted into `src/test/smoke/shared.ts`.
+- Reliable full-window screenshots require waiting for `.monaco-workbench`, the webview iframe, the outer `body[data-state="ready"]`, and then an extra 3 second stabilization delay before `page.screenshot()`.
+- In this environment, opening the registered project directly can land the webview in `data-state="error"`, while switching from the fresh folder to the registered folder in the same VSCode window is stable.

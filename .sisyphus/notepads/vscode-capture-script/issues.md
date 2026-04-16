@@ -1,0 +1,2 @@
+- No blockers after reusing the smoke helper flow; Biome import ordering required an extra formatting pass on the new smoke files.
+- Direct-open smoke coverage for the registered project reproduced an existing `data-state="error"` path during debugging, so the capture flow now reuses the proven workspace-swap path for the second screenshot.

@@ -1,0 +1,3 @@
+- Added `src/test/smoke/shared.ts` instead of duplicating sidebar/webview helpers inside `capture.ts`, so smoke tests and the new capture script share the same Playwright Electron behavior.
+- Kept server/bootstrap setup local to `capture.ts` to avoid reshaping the existing smoke runner more than necessary.
+- Captured the project screenshot by swapping the already-open fresh workspace to the registered workspace, because that path matched the stable existing smoke behavior better than a second direct launch.

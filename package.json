@@ -265,6 +265,7 @@
     "dev:spa": "VITE_OPENCODE_SERVER_PORT=57777 VITE_OPENCODE_SERVER_HOST=127.0.0.1 bun --cwd ../packages/app dev -- --port 4444",
     "pretest:e2e": "bun run build && node esbuild.e2e.js",
     "test:e2e": "node out/test/e2e/runTest.js",
+    "smoke:capture": "node esbuild.capture.js && node out/test/smoke/capture.js",
     "test:browser": "npx playwright test --config playwright.config.ts",
     "lint": "echo lint-placeholder"
   },
