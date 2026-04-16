@@ -9,18 +9,19 @@
       "args": [
         "/tmp/opencode-dev-test",
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--user-data-dir=/tmp/opencode-dev-userdata"
+        "--user-data-dir=/tmp/opencode-dev-userdata",
+        "--disable-extensions"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "sourceMaps": true
     },
     {
-      "name": "Run Extension (opencode)",
+      "name": "Run Extension (opencode monorepo)",
       "type": "extensionHost",
       "request": "launch",
       "preLaunchTask": "npm: build",
       "args": [
-        "/Users/pingzi/Developer/work/AIGC/opencode",
+        "${workspaceFolder}/..",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],

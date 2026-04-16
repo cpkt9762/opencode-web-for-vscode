@@ -541,13 +541,19 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({ dispose: stop })
 
   if (auto) {
+    trace("Starting ProcessManager...")
     await manager
       .start()
-      .then((item) => link(item.url, item.password))
+      .then((item) => {
+        trace(`ProcessManager started: url=${item.url}`)
+        return link(item.url, item.password)
+      })
       .catch((err) => {
+        trace(`ProcessManager failed: ${msg(err)}`)
         output.appendLine(`Failed: ${msg(err)}`)
         void vscode.window.showWarningMessage("OpenCode: Failed to start server")
       })
+    trace("ProcessManager start sequence complete")
   }
 
   const bar = createStatusBar(manager)

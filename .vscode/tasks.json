@@ -30,7 +30,7 @@
     {
       "label": "fresh-workspace:init",
       "type": "shell",
-      "command": "/bin/bash -c 'rm -rf /tmp/opencode-dev-test && mkdir -p /tmp/opencode-dev-test && git -C /tmp/opencode-dev-test init && mkdir -p /tmp/opencode-dev-test/.vscode && echo \"{\\\"opencode.port\\\": 58888, \\\"opencode.autoStart\\\": true}\" > /tmp/opencode-dev-test/.vscode/settings.json'",
+      "command": "/bin/bash -c 'rm -rf /tmp/opencode-dev-test /tmp/opencode-dev-userdata && mkdir -p /tmp/opencode-dev-test /tmp/opencode-dev-userdata && git -C /tmp/opencode-dev-test init && mkdir -p /tmp/opencode-dev-test/.vscode && echo \"{\\\"opencode.port\\\": 58888, \\\"opencode.autoStart\\\": true}\" > /tmp/opencode-dev-test/.vscode/settings.json'",
       "presentation": { "reveal": "silent" },
       "problemMatcher": []
     },
