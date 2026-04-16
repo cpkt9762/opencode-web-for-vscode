@@ -3,12 +3,13 @@ SHELL := /bin/bash
 
 ROOT := $(shell pwd)
 REPO := $(abspath $(ROOT)/..)
-EXT_ID := opencode.opencode-web-for-vscode-0.1.0
+EXT_VERSION := $(shell node -p "require('./package.json').version")
+EXT_ID := opencode.opencode-web-for-vscode-$(EXT_VERSION)
 INSTALLED_DIR := $(HOME)/.vscode/extensions/$(EXT_ID)
 INSTALLED_LOG := $(INSTALLED_DIR)/debug.log
 
 PKG_NAME := opencode-web-for-vscode
-VSIX := $(PKG_NAME)-$(shell node -p "require('./package.json').version").vsix
+VSIX := $(PKG_NAME)-$(EXT_VERSION).vsix
 
 # Patch that customizes the upstream SPA (packages/app) for this extension.
 # Applied to the parent opencode monorepo via `git -C $(REPO) apply`.
