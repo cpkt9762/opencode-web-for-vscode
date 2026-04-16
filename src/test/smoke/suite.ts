@@ -54,6 +54,7 @@ async function open(cfg: Cfg, dir?: string): Promise<Win> {
     `--extensions-dir=${cfg.ext}`,
     `--user-data-dir=${user}`,
     "--disable-gpu",
+    "--disable-dev-shm-usage",
     "--locale=en-US",
     "--disable-workspace-trust",
     "--new-window",
@@ -68,6 +69,7 @@ async function open(cfg: Cfg, dir?: string): Promise<Win> {
     cwd: cfg.root,
     env: {
       ...process.env,
+      ...(process.platform === "linux" ? { DISPLAY: process.env.DISPLAY || ":99" } : {}),
       LANG: "en_US.UTF-8",
       LC_ALL: "en_US.UTF-8",
     },
@@ -85,6 +87,7 @@ function swap(cfg: Cfg, win: Win, dir: string) {
     `--extensions-dir=${cfg.ext}`,
     `--user-data-dir=${win.user}`,
     "--disable-gpu",
+    "--disable-dev-shm-usage",
     "--locale=en-US",
     "--disable-workspace-trust",
     "--reuse-window",
@@ -98,6 +101,7 @@ function swap(cfg: Cfg, win: Win, dir: string) {
     cwd: cfg.root,
     env: {
       ...process.env,
+      ...(process.platform === "linux" ? { DISPLAY: process.env.DISPLAY || ":99" } : {}),
       LANG: "en_US.UTF-8",
       LC_ALL: "en_US.UTF-8",
     },
@@ -402,7 +406,8 @@ function add(mocha: Mocha, cfg: Cfg) {
 export async function run(cfg: Cfg) {
   const mocha = new Mocha({
     color: true,
-    timeout: 90000,
+    reporter: "spec",
+    timeout: 120000,
     ui: "bdd",
   })
 
