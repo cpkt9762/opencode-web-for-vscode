@@ -27,6 +27,38 @@ function live() {
   } as unknown as vscode.WebviewView
 }
 
+function hook() {
+  const state = {
+    die: undefined as (() => void) | undefined,
+    msg: undefined as ((input: unknown) => void) | undefined,
+    vis: undefined as (() => void) | undefined,
+  }
+
+  const item = {
+    viewType: "opencode-web.chatView",
+    visible: true,
+    onDidChangeVisibility: vi.fn((cb: () => void) => {
+      state.vis = cb
+      return { dispose: vi.fn() }
+    }),
+    onDidDispose: vi.fn((cb: () => void) => {
+      state.die = cb
+      return { dispose: vi.fn() }
+    }),
+    webview: {
+      html: "",
+      onDidReceiveMessage: vi.fn((cb: (input: unknown) => void) => {
+        state.msg = cb
+        return { dispose: vi.fn() }
+      }),
+      options: undefined,
+      postMessage: vi.fn(),
+    },
+  } as unknown as vscode.WebviewView
+
+  return { item, state }
+}
+
 function set(provider: OpenCodeWebviewProvider, state: string, opts?: { folder?: string }) {
   const fn = Reflect.get(provider, "setState") as (state: string, opts?: { folder?: string }) => void
   fn.call(provider, state, opts)
@@ -176,5 +208,31 @@ describe("OpenCodeWebviewProvider", () => {
     expect(item.webview.html).toContain("opencode-web.navigate")
     expect(item.webview.html).toContain("sessionId")
     expect(item.webview.html).toContain("/session/")
+  })
+
+  it("logs lifecycle and bridge events with minimal payloads", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const log = vi.fn()
+    const { item, state } = hook()
+    provider.log = log
+
+    provider.resolveWebviewView(item)
+    state.vis?.()
+    state.msg?.({ type: "opencode-web.frame-ready", url: "http://localhost:4096" })
+    state.msg?.({ type: "opencode-web.session-changed", sessionId: "ses_123" })
+    state.msg?.({ type: "opencode-web.spa-log", msg: "[bootstrap] ready" })
+    state.die?.()
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:resolve]"))
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:state] visible=true"))
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:msg] type=opencode-web.frame-ready url=set"))
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[SPA] frame-ready: http://localhost:4096"))
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("[webview:msg] type=opencode-web.session-changed sessionId=ses_123"),
+    )
+    expect(log).toHaveBeenCalledWith("[SPA] session-changed: ses_123")
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:msg] type=opencode-web.spa-log msg=17 chars"))
+    expect(log).toHaveBeenCalledWith("[SPA] [bootstrap] ready")
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:dispose]"))
   })
 })

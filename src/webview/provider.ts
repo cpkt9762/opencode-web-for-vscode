@@ -45,6 +45,29 @@ function kind(input: unknown) {
   return (input as { type: string }).type
 }
 
+function brief(input: unknown) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return `payload=${typeof input}`
+
+  const data = input as Record<string, unknown>
+  const list = Object.entries(data)
+    .filter(([key]) => key !== "type")
+    .flatMap(([key, value]) => {
+      if (typeof value === "string") {
+        if (key === "detail" || key === "msg" || key === "text") return [`${key}=${value.length} chars`]
+        if (key === "url") return [`${key}=${value ? "set" : "empty"}`]
+        return [`${key}=${value}`]
+      }
+      if (typeof value === "boolean") return [`${key}=${value}`]
+      if (typeof value === "number") return [`${key}=${value}`]
+      if (Array.isArray(value)) return [`${key}[${value.length}]`]
+      if (!value) return [`${key}=null`]
+      return [`${key}=object`]
+    })
+
+  if (list.length > 0) return list.join(" ")
+  return "payload=none"
+}
+
 function page(url: string, state: State, folder?: string) {
   const n = nonce()
   const src = attr(url)
@@ -344,11 +367,12 @@ function page(url: string, state: State, folder?: string) {
 }
 
 export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
+  private sub: vscode.Disposable[] = []
   private view?: vscode.WebviewView
   private url: string
   private state: State
   private folder?: string
-  private off?: vscode.Disposable
+  private seen = 0
   private timer?: ReturnType<typeof setTimeout>
   log?: (msg: string) => void
   onSession?: (id: string | null) => void
@@ -359,6 +383,8 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   resolveWebviewView(view: vscode.WebviewView) {
+    const mode = this.view ? "reresolve" : "create"
+    this.seen += 1
     this.view = view
     view.webview.options = {
       enableScripts: true,
@@ -366,6 +392,9 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
       enableCommandUris: true,
       localResourceRoots: [],
     }
+    this.log?.(
+      `[webview:resolve] view=${view.viewType} mode=${mode} count=${this.seen} visible=${view.visible} opts=${JSON.stringify(view.webview.options)}`,
+    )
     this.watch()
     if (this.url !== "about:blank" && this.state === "error") {
       this.state = "loading"
@@ -420,46 +449,83 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
     return true
   }
 
+  private drop() {
+    this.sub.forEach((item) => {
+      item.dispose()
+    })
+    this.sub = []
+  }
+
   private watch() {
-    this.off?.dispose()
-    this.off = undefined
+    this.drop()
     if (!this.view) return
-    const on = Reflect.get(this.view.webview, "onDidReceiveMessage")
+    const view = this.view
+    const on = Reflect.get(view.webview, "onDidReceiveMessage")
     if (typeof on !== "function") return
-    this.off = on.call(this.view.webview, (input: unknown) => {
-      const type = kind(input)
-      if (type === "opencode-web.spa-log") {
-        const msg = (input as { msg?: string }).msg
-        if (msg && this.log) this.log(`[SPA] ${msg}`)
-        return
-      }
-      if (type === "opencode-web.session-changed") {
-        const sid = (input as { sessionId?: string }).sessionId
-        if (this.log) this.log(`[SPA] session-changed: ${sid ?? "none"}`)
-        if (this.onSession) this.onSession(sid ?? null)
-        return
-      }
-      if (type === "opencode-web.clipboard-write") {
-        const text = (input as { text?: string }).text ?? ""
-        void api().env.clipboard.writeText(text)
-        if (this.log) this.log(`[clipboard] write ${text.length} chars`)
-        return
-      }
-      if (type === "opencode-web.clipboard-read") {
-        void api()
-          .env.clipboard.readText()
-          .then((text) => {
-            if (this.log) this.log(`[clipboard] read ${text.length} chars`)
-            this.post("opencode-web.clipboard-text", { text })
-          })
-        return
-      }
-      if (type === MSG.retry) {
-        this.setUrl(this.url)
-        return
-      }
-      if (type !== MSG.frame_ready || this.url === "about:blank") return
-      this.setState("ready")
-    }) as vscode.Disposable
+
+    this.sub.push(
+      on.call(view.webview, (input: unknown) => {
+        const type = kind(input)
+        this.log?.(`[webview:msg] type=${type ?? "unknown"} ${brief(input)}`)
+        if (type === "opencode-web.spa-log") {
+          const msg = (input as { msg?: string }).msg
+          if (msg && this.log) this.log(`[SPA] ${msg}`)
+          return
+        }
+        if (type === "opencode-web.session-changed") {
+          const sid = (input as { sessionId?: string }).sessionId
+          if (this.log) this.log(`[SPA] session-changed: ${sid ?? "none"}`)
+          if (this.onSession) this.onSession(sid ?? null)
+          return
+        }
+        if (type === "opencode-web.clipboard-write") {
+          const text = (input as { text?: string }).text ?? ""
+          void api().env.clipboard.writeText(text)
+          if (this.log) this.log(`[clipboard] write ${text.length} chars`)
+          return
+        }
+        if (type === "opencode-web.clipboard-read") {
+          void api()
+            .env.clipboard.readText()
+            .then((text) => {
+              if (this.log) this.log(`[clipboard] read ${text.length} chars`)
+              this.post("opencode-web.clipboard-text", { text })
+            })
+          return
+        }
+        if (type === MSG.retry) {
+          this.setUrl(this.url)
+          return
+        }
+        if (type === MSG.frame_ready) {
+          const url = (input as { url?: string }).url
+          if (this.log) this.log(`[SPA] frame-ready: ${url ?? "unknown"}`)
+        }
+        if (type !== MSG.frame_ready || this.url === "about:blank") return
+        this.setState("ready")
+      }) as vscode.Disposable,
+    )
+
+    const vis = Reflect.get(view, "onDidChangeVisibility")
+    if (typeof vis === "function") {
+      this.sub.push(
+        vis.call(view, () => {
+          const active = Reflect.get(view, "active")
+          this.log?.(`[webview:state] visible=${view.visible} active=${typeof active === "boolean" ? active : "n/a"}`)
+        }) as vscode.Disposable,
+      )
+    }
+
+    const die = Reflect.get(view, "onDidDispose")
+    if (typeof die === "function") {
+      this.sub.push(
+        die.call(view, () => {
+          this.log?.(`[webview:dispose] view=${view.viewType} visible=${view.visible}`)
+          if (this.view === view) this.view = undefined
+          this.stop()
+          this.drop()
+        }) as vscode.Disposable,
+      )
+    }
   }
 }
