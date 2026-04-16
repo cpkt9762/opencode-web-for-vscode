@@ -21,6 +21,7 @@ const registerTreeDataProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const registerTextDocumentContentProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const registerCodeLensProvider = vi.fn(() => ({ dispose: vi.fn() }))
 const onDidChangeConfiguration = vi.fn(() => ({ dispose: vi.fn() }))
+const showWarningMessage = vi.fn()
 const onDidChangeWorkspaceFolders = vi.fn((cb: () => unknown) => {
   state.work = cb
   return { dispose: vi.fn() }
@@ -115,8 +116,6 @@ const getDirectory = vi.fn(async () => "/workspace")
 const onDirectoryChange = vi.fn((_cb: (dir: string | undefined) => unknown) => {
   return { dispose: vi.fn() }
 })
-const showPermission = vi.fn(async () => "once")
-const showQuestion = vi.fn(async () => null)
 const showErrorMessage = vi.fn()
 const fetchMock = vi.fn(async () => res([{ worktree: "/workspace" }]))
 
@@ -127,6 +126,7 @@ const providers: unknown[] = []
 const msgs: Array<Map<string, (payload: unknown) => unknown>> = []
 const events: Array<{
   dispose: ReturnType<typeof vi.fn>
+  onEvent?: (type: string) => void
   start: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
 }> = []
@@ -174,9 +174,10 @@ const ProvidersProvider = vi.fn(() => {
 const DiffProvider = vi.fn(() => ({}))
 const OpenCodeLensProvider = vi.fn(() => ({}))
 
-const EventListener = vi.fn(() => {
+const EventListener = vi.fn((opts?: { onEvent?: (type: string) => void }) => {
   const item = {
     dispose: vi.fn(),
+    onEvent: opts?.onEvent,
     start: vi.fn(),
     stop: vi.fn(),
   }
@@ -221,7 +222,7 @@ vi.mock("vscode", () => ({
     registerTreeDataProvider,
     registerWebviewViewProvider,
     showErrorMessage,
-    showWarningMessage: vi.fn(),
+    showWarningMessage,
     showTextDocument: vi.fn(async () => undefined),
   },
   workspace: {
@@ -260,7 +261,6 @@ vi.mock("./webview/bridge.js", () => ({
     set_url: "opencode-web.setUrl",
   },
 }))
-vi.mock("./views/dialogs.js", () => ({ showPermission, showQuestion }))
 vi.mock("./utils/workspace.js", () => ({ currentFolder, getDirectory, onDirectoryChange }))
 
 function ctx() {
@@ -286,6 +286,7 @@ describe("extension", () => {
     providers.length = 0
     events.length = 0
     msgs.length = 0
+    showWarningMessage.mockReset()
     state.dir = "/workspace"
     state.work = undefined
     currentFolder.mockReturnValue("/workspace")
@@ -308,7 +309,9 @@ describe("extension", () => {
     await activate(ctx())
 
     expect(registerWebviewViewProvider).toHaveBeenCalledOnce()
-    expect(registerWebviewViewProvider).toHaveBeenCalledWith("opencode-web.chatView", expect.any(Object))
+    expect(registerWebviewViewProvider).toHaveBeenCalledWith("opencode-web.chatView", expect.any(Object), {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   })
 
   it("activate registers tree data providers", async () => {
@@ -460,6 +463,42 @@ describe("extension", () => {
     await activate(ctx())
 
     expect(projs.some((item) => item.initGit.mock.calls.length > 0)).toBe(false)
+  })
+
+  it("activate leaves question handling to the SPA", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+    await tick()
+
+    const item = made.at(-1)?.client.question as {
+      list: ReturnType<typeof vi.fn>
+      reject: ReturnType<typeof vi.fn>
+      reply: ReturnType<typeof vi.fn>
+    }
+
+    expect(item.list).not.toHaveBeenCalled()
+    expect(item.reject).not.toHaveBeenCalled()
+    expect(item.reply).not.toHaveBeenCalled()
+  })
+
+  it("activate leaves permission handling to the SPA", async () => {
+    const { activate } = await import("./extension.js")
+
+    await activate(ctx())
+    await tick()
+
+    events[0]?.onEvent?.("session.permission")
+    await tick()
+
+    const item = made.at(-1)?.client.permission as {
+      list: ReturnType<typeof vi.fn>
+      reply: ReturnType<typeof vi.fn>
+    }
+
+    expect(item.list).not.toHaveBeenCalled()
+    expect(item.reply).not.toHaveBeenCalled()
+    expect(showWarningMessage).not.toHaveBeenCalled()
   })
 
   it("link loads SPA root for unregistered folder", async () => {

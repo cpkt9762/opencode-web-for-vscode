@@ -7,7 +7,6 @@ import { createClient, updateDirectory } from "./sdk/client.js"
 import { start as startSpa } from "./spa/server.js"
 import { currentFolder } from "./utils/workspace.js"
 import { OpenCodeLensProvider } from "./views/codelens.js"
-import { showPermission, showQuestion } from "./views/dialogs.js"
 import { DiffProvider, scheme } from "./views/diff.js"
 import { ProvidersProvider } from "./views/providers.js"
 import { SessionsProvider } from "./views/sessions.js"
@@ -15,30 +14,13 @@ import { createStatusBar } from "./views/statusbar.js"
 import { MessageBridge, MSG } from "./webview/bridge.js"
 import { OpenCodeWebviewProvider, VIEW_ID } from "./webview/provider.js"
 
-const WAIT = 1500
+let dump: ((msg: string) => void) | undefined
 
 type Sdk = Awaited<ReturnType<typeof createClient>>
-type Reply = Awaited<ReturnType<typeof showPermission>>
-
-type Opt = string | { label?: string }
-
-type Ask = {
-  id: string
-  questions?: Array<{
-    options?: Opt[]
-    question?: string
-  }>
-}
 
 type Model = {
   id?: string
   name?: string
-}
-
-type Perm = {
-  id: string
-  patterns?: string[]
-  permission?: string
 }
 
 type Provider = {
@@ -84,17 +66,8 @@ type Raw = {
       stream: AsyncIterable<unknown>
     }>
   }
-  permission?: {
-    list?: () => Promise<{ data?: Perm[] }>
-    reply?: (input: { requestID: string; reply: Reply }) => Promise<unknown>
-  }
   provider?: {
     list?: () => Promise<ProviderList>
-  }
-  question?: {
-    list?: () => Promise<{ data?: Ask[] }>
-    reject?: (input: { requestID: string }) => Promise<unknown>
-    reply?: (input: { answers?: string[][]; requestID: string }) => Promise<unknown>
   }
   session?: {
     diff?: (input: { sessionID: string }) => Promise<{ data?: unknown }>
@@ -126,21 +99,6 @@ function file(input: unknown) {
   if (typeof input.file === "string") return input.file
 }
 
-function opts(list: Opt[] | undefined) {
-  return (list ?? []).flatMap((item) => {
-    if (typeof item === "string") return [item]
-    if (!obj(item) || typeof item.label !== "string") return []
-    return [item.label]
-  })
-}
-
-function desc(item: Perm) {
-  const head = item.permission ?? "Permission request"
-  const tail = (item.patterns ?? []).filter((item) => typeof item === "string")
-  if (tail.length === 0) return head
-  return `${head}\n${tail.join("\n")}`
-}
-
 export async function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel("OpenCode")
   context.subscriptions.push(output)
@@ -149,11 +107,15 @@ export async function activate(context: vscode.ExtensionContext) {
   const { join } = await import("node:path")
   const log = join(context.extensionPath, "debug.log")
   writeFileSync(log, `=== OpenCode Debug Log ===\n${new Date().toISOString()}\n\n`)
+  dump = (msg: string) => {
+    appendFileSync(log, `[${new Date().toISOString()}] ${msg}\n`)
+  }
   const trace = (msg: string) => {
     const line = `[${new Date().toISOString()}] ${msg}`
     output.appendLine(line)
     appendFileSync(log, `${line}\n`)
   }
+  trace("[ext] activate")
 
   const folders = vscode.workspace.workspaceFolders
   trace(`workspaceFolders count: ${folders?.length ?? 0}`)
@@ -177,12 +139,9 @@ export async function activate(context: vscode.ExtensionContext) {
   let sdk: Sdk | null = null
   let dir = ""
   let bridge: MessageBridge | null = null
-  let loop: ReturnType<typeof setInterval> | undefined
-  let busy = false
   let root = ""
   let subs: vscode.Disposable[] = []
 
-  const seen = new Set<string>()
   const getSdk = () => sdk
   const getRaw = (): Raw | null => {
     const item = sdk?.client
@@ -232,6 +191,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState.update("lastSessionId", id)
     trace(`[session-persist] saved=${id ?? "cleared"}`)
   }
+  context.subscriptions.push({ dispose: () => trace("[ext] dispose") })
 
   const sessions = new SessionsProvider(getRaw)
   sessions.setLog(trace)
@@ -245,9 +205,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (type.startsWith("session.")) sessions.refresh()
       if (type.startsWith("provider.")) providers.refresh()
-      if (type.includes("permission") || type.includes("question")) {
-        void pull()
-      }
     },
   })
 
@@ -261,10 +218,6 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   const stop = () => {
-    if (loop) {
-      clearInterval(loop)
-      loop = undefined
-    }
     events.stop()
     sdk = null
     sessions.refresh()
@@ -294,105 +247,6 @@ export async function activate(context: vscode.ExtensionContext) {
       () => null,
       () => null,
     )
-  }
-
-  const ask = async (api: NonNullable<Raw["question"]>, item: Ask) => {
-    const list = item.questions ?? []
-    if (list.length === 0) {
-      await api.reject?.({ requestID: item.id })
-      return
-    }
-
-    const answers: string[][] = []
-
-    for (const row of list) {
-      const answer = await showQuestion({
-        options: opts(row.options).length > 0 ? opts(row.options) : undefined,
-        question: row.question ?? "Question",
-        requestID: item.id,
-      }).catch(() => null)
-
-      if (answer === null) {
-        await api.reject?.({ requestID: item.id })
-        return
-      }
-
-      answers.push([answer])
-    }
-
-    await api.reply?.({ answers, requestID: item.id })
-  }
-
-  const pollPerm = async () => {
-    const api = getRaw()?.permission
-    if (!api?.list || !api.reply) return
-
-    const list = await api
-      .list()
-      .then((item) => item.data ?? [])
-      .catch(() => [])
-    for (const item of list) {
-      const id = `perm:${item.id}`
-      if (seen.has(id)) continue
-
-      seen.add(id)
-      await showPermission({
-        description: desc(item),
-        requestID: item.id,
-        type: item.permission ?? "permission",
-      })
-        .catch(() => "reject" as const)
-        .then((reply) => api.reply?.({ reply, requestID: item.id }))
-        .catch((err) => {
-          output.appendLine(`Permission reply failed: ${msg(err)}`)
-        })
-        .finally(() => {
-          seen.delete(id)
-        })
-    }
-  }
-
-  const pollAsk = async () => {
-    const api = getRaw()?.question
-    if (!api?.list || !api.reply || !api.reject) return
-
-    const list = await api
-      .list()
-      .then((item) => item.data ?? [])
-      .catch(() => [])
-    for (const item of list) {
-      const id = `ask:${item.id}`
-      if (seen.has(id)) continue
-
-      seen.add(id)
-      await ask(api, item)
-        .catch((err) => {
-          output.appendLine(`Question reply failed: ${msg(err)}`)
-        })
-        .finally(() => {
-          seen.delete(id)
-        })
-    }
-  }
-
-  const pull = async () => {
-    if (busy) return
-    busy = true
-
-    try {
-      await pollPerm()
-      await pollAsk()
-    } finally {
-      busy = false
-    }
-  }
-
-  const watch = () => {
-    if (loop) return
-    loop = setInterval(() => {
-      void pull()
-    }, WAIT)
-    loop.unref?.()
   }
 
   const sync = async (next: string | undefined, force?: boolean) => {
@@ -445,7 +299,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     events.stop()
     await events.start()
-    watch()
     trace("[link] calling sessions.refresh()")
     sessions.refresh()
     providers.refresh()
@@ -453,7 +306,6 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!dir) {
       root = ""
       webview.setUrl("about:blank")
-      void pull()
       return
     }
 
@@ -464,7 +316,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (!item.has) {
       webview.setUrl(await home(item.url))
-      void pull()
       return
     }
 
@@ -483,7 +334,6 @@ export async function activate(context: vscode.ExtensionContext) {
     trace(`iframe URL: ${target} (lastSession=${last ?? "none"})`)
     trace(`base64 slug: ${slug(dir)}`)
     webview.setUrl(target)
-    void pull()
   }
 
   const create = async () => {
@@ -515,15 +365,6 @@ export async function activate(context: vscode.ExtensionContext) {
         const label = obj(data) && typeof data.label === "string" ? data.label : "?"
         const detail = obj(data) && typeof data.detail === "string" ? data.detail : ""
         trace(`[DIAG:${label}] ${detail}`)
-      }),
-      bridge.onMessage(MSG.frame_ready, () => {
-        void pull()
-      }),
-      bridge.onMessage(MSG.request_permission, () => {
-        void pull()
-      }),
-      bridge.onMessage(MSG.request_question, () => {
-        void pull()
       }),
       bridge.onMessage("opencode-web.create-project", () => {
         void create()
@@ -564,7 +405,9 @@ export async function activate(context: vscode.ExtensionContext) {
     sessions,
   })
 
-  context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, webview))
+  const retain = { webviewOptions: { retainContextWhenHidden: true } } as const
+  trace(`[retain] register view=${VIEW_ID} retainContextWhenHidden=${retain.webviewOptions.retainContextWhenHidden}`)
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, webview, retain))
   context.subscriptions.push(vscode.window.registerTreeDataProvider("opencode-web.sessions", sessions))
   context.subscriptions.push(vscode.window.registerTreeDataProvider("opencode-web.providers", providers))
   if (sdk) {
@@ -614,4 +457,6 @@ export async function activate(context: vscode.ExtensionContext) {
   )
 }
 
-export function deactivate() {}
+export function deactivate() {
+  dump?.("[ext] deactivate")
+}
