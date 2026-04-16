@@ -3,6 +3,9 @@ SHELL := /bin/bash
 
 ROOT := $(shell pwd)
 REPO := $(abspath $(ROOT)/..)
+EXT_ID := opencode.opencode-web-for-vscode-0.1.0
+INSTALLED_DIR := $(HOME)/.vscode/extensions/$(EXT_ID)
+INSTALLED_LOG := $(INSTALLED_DIR)/debug.log
 
 PKG_NAME := opencode-web-for-vscode
 VSIX := $(PKG_NAME)-$(shell node -p "require('./package.json').version").vsix
@@ -128,7 +131,14 @@ uninstall:
 	code --uninstall-extension $(PKG_NAME) || true
 
 .PHONY: reinstall
-reinstall: uninstall install
+reinstall: vsix
+	@echo ">> Uninstalling extension via VSCode CLI..."
+	code --uninstall-extension opencode.opencode-web-for-vscode || true
+	@echo ">> Purging cached extension dir: $(INSTALLED_DIR)"
+	@rm -rf "$(INSTALLED_DIR)"
+	@echo ">> Installing fresh VSIX..."
+	code --install-extension $(VSIX) --force
+	@echo ">> Reload VSCode (Cmd+Shift+P → Developer: Reload Window) to activate."
 
 .PHONY: watch
 watch:
@@ -153,9 +163,9 @@ clean:
 
 .PHONY: logs
 logs:
-	@test -f debug.log && tail -f debug.log || echo "no debug.log yet"
+	@test -f "$(INSTALLED_LOG)" && tail -f "$(INSTALLED_LOG)" || echo "no debug.log at $(INSTALLED_LOG) — reload VSCode first"
 
 .PHONY: logs-clear
 logs-clear:
-	@: > debug.log
-	@echo ">> debug.log cleared"
+	@: > "$(INSTALLED_LOG)" 2>/dev/null || true
+	@echo ">> cleared $(INSTALLED_LOG)"
