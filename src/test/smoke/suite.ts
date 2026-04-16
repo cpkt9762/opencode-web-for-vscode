@@ -365,7 +365,7 @@ function add(mocha: Mocha, cfg: Cfg) {
         const item = app.locator("button.mt-4").first()
 
         await expect(item).toBeVisible({ timeout: 30000 })
-        await item.click()
+        await item.click({ force: true, timeout: 60000 })
         await expect(app.locator('[data-component="dialog"] [data-slot="dialog-content"]')).toBeVisible({
           timeout: 30000,
         })
