@@ -362,13 +362,30 @@ function add(mocha: Mocha, cfg: Cfg) {
         const frame = await reveal(win.page)
         await url(frame, (item) => item.pathname === "/")
         const app = await home(frame)
-        const item = app.locator("button.mt-4").first()
+        const item = app.locator("ul button").first()
+        const path = `/${slug(cfg.ready)}`
 
         await expect(item).toBeVisible({ timeout: 30000 })
         await item.click({ force: true, timeout: 60000 })
-        await expect(app.locator('[data-component="dialog"] [data-slot="dialog-content"]')).toBeVisible({
-          timeout: 30000,
-        })
+
+        const stop = Date.now() + 30000
+        let raw = ""
+        while (Date.now() < stop) {
+          raw =
+            win.page
+              .frames()
+              .find((item) => {
+                const raw = item.url()
+                return raw.startsWith("http://127.0.0.1:") && new URL(raw).pathname === path
+              })
+              ?.url() ?? ""
+          if (raw) break
+
+          await wait(250)
+        }
+
+        assert.ok(raw, `Timed out waiting for recent project route: ${path}`)
+        assert.equal(new URL(raw).pathname, path)
       } finally {
         await shut(win)
       }
