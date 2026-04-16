@@ -2,7 +2,7 @@
 
 Full-featured VSCode extension that embeds the [OpenCode](https://opencode.ai) AI coding agent web UI directly in your sidebar.
 
-![Icon](resources/icons/opencode.png)
+![Screenshot](docs/images/screenshot.png)
 
 ## Features
 
