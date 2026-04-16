@@ -199,6 +199,77 @@ describe("spa proxy routes", () => {
   }
 })
 
+describe("spa sse proxy", () => {
+  it("flushes headers early and streams each event before the next write", async () => {
+    const sent: number[] = []
+    const got: number[] = []
+    const head: number[] = []
+    const log: string[] = []
+    const body = ["data: 1\n\n", "data: 2\n\n", "data: 3\n\n"]
+    const live = createServer((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      })
+      res.flushHeaders()
+
+      const step = (i: number) => {
+        if (i >= body.length) {
+          res.end()
+          return
+        }
+
+        setTimeout(
+          () => {
+            sent.push(Date.now())
+            res.write(body[i])
+            step(i + 1)
+          },
+          i === 0 ? 200 : 120,
+        )
+      }
+
+      step(0)
+    })
+    await new Promise<void>((resolve) => live.listen(0, "127.0.0.1", resolve))
+    const addr = live.address()
+    const port = typeof addr === "object" && addr ? addr.port : 0
+    const site = await start({
+      dist: tmp,
+      backend: `http://127.0.0.1:${port}`,
+      log: (item) => log.push(item),
+    })
+
+    try {
+      const t0 = Date.now()
+      await new Promise<void>((resolve, reject) => {
+        const out = request(
+          `http://127.0.0.1:${site.port}/event`,
+          { headers: { accept: "text/event-stream" } },
+          (res) => {
+            head.push(Date.now() - t0)
+            res.on("data", () => got.push(Date.now() - t0))
+            res.on("end", resolve)
+          },
+        )
+        out.on("error", reject)
+        out.end()
+      })
+
+      expect(head).toHaveLength(1)
+      expect(got).toHaveLength(body.length)
+      expect(log).toContain("[SSE] proxy streaming /event")
+      expect(head[0]).toBeLessThan(sent[0] - t0 - 50)
+      expect(got[0]).toBeLessThan(sent[1] - t0 - 40)
+      expect(got[1]).toBeLessThan(sent[2] - t0 - 40)
+    } finally {
+      site.server.close()
+      live.close()
+    }
+  })
+})
+
 describe("spa static fallback", () => {
   it("serves index.html for root", async () => {
     const res = await get(spa.port, "/")

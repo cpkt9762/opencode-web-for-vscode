@@ -42,6 +42,8 @@ help:
 	@echo "    make watch         esbuild watch mode"
 	@echo "    make test          Run unit tests (vitest)"
 	@echo "    make test-e2e      Run Playwright E2E tests"
+	@echo "    make ci-image      Build local arm64 CI image"
+	@echo "    make ci-local      Run local arm64 CI (install/typecheck/build/test)"
 	@echo "    make typecheck     Run TypeScript type check"
 	@echo "    make clean         Remove build outputs"
 	@echo ""
@@ -152,6 +154,18 @@ test:
 .PHONY: test-e2e
 test-e2e:
 	TEST_DIR=$(REPO) npx playwright test --config playwright.config.ts
+
+.PHONY: ci-image
+ci-image:
+	docker build -f Dockerfile.ci -t ocvs-ci .
+
+.PHONY: ci-local
+ci-local: ci-image
+	docker run --rm \
+	  -v "$$PWD:/work" \
+	  -w /work \
+	  ocvs-ci \
+	  bash -lc 'bun install && bun run check-types && bun run build && bun run test'
 
 .PHONY: typecheck
 typecheck:

@@ -260,7 +260,7 @@
     "build": "node esbuild.config.js --production",
     "watch": "node esbuild.config.js --watch",
     "check-types": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node ./node_modules/vitest/vitest.mjs run --pool=forks",
     "build:spa": "bash scripts/build-spa.sh",
     "dev:spa": "VITE_OPENCODE_SERVER_PORT=57777 VITE_OPENCODE_SERVER_HOST=127.0.0.1 bun --cwd ../packages/app dev -- --port 4444",
     "pretest:e2e": "bun run build && node esbuild.e2e.js",

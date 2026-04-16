@@ -227,7 +227,14 @@ function inject(html: string) {
   return html.replace("<head>", `<head>${BOOTSTRAP}`)
 }
 
-function proxy(incoming: IncomingMessage, res: ServerResponse, backend: URL) {
+function sse(value: string | string[] | undefined) {
+  return Array.isArray(value)
+    ? value.some((item) => item.includes("text/event-stream"))
+    : (value?.includes("text/event-stream") ?? false)
+}
+
+function proxy(incoming: IncomingMessage, res: ServerResponse, backend: URL, log: (msg: string) => void) {
+  const want = sse(incoming.headers.accept)
   const out = req(
     {
       hostname: backend.hostname,
@@ -237,8 +244,21 @@ function proxy(incoming: IncomingMessage, res: ServerResponse, backend: URL) {
       headers: { ...incoming.headers, host: `${backend.hostname}:${backend.port}` },
     },
     (upstream) => {
+      const live = want || sse(upstream.headers["content-type"])
       res.writeHead(upstream.statusCode ?? 502, upstream.headers)
-      upstream.pipe(res)
+      if (!live) {
+        upstream.pipe(res)
+        return
+      }
+
+      log(`[SSE] proxy streaming ${incoming.url ?? "/"}`)
+      res.flushHeaders()
+      res.socket?.setNoDelay(true)
+      res.socket?.setKeepAlive(true)
+      res.socket?.setTimeout(0)
+      upstream.on("data", (chunk) => res.write(chunk))
+      upstream.on("end", () => res.end())
+      upstream.on("error", () => res.end())
     },
   )
   out.on("error", () => {
@@ -374,7 +394,7 @@ export function start(opts: {
       }
 
       if (API.some((p) => url.pathname.startsWith(p))) {
-        proxy(incoming, res, backend)
+        proxy(incoming, res, backend, log)
         return
       }
 
