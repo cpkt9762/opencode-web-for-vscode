@@ -64,59 +64,27 @@ const BOOTSTRAP = `<script>
   var host = location.hostname
   var sk = (host === "localhost" || host === "127.0.0.1") ? "local" : location.origin
   blog("storage key=" + sk)
-  function save(store){ localStorage.setItem(key, JSON.stringify(store)) }
   function load(){
     var raw = localStorage.getItem(key)
     return raw ? JSON.parse(raw) : {list:[],projects:{},lastProject:{}}
   }
   var store = load()
-  var list = store.projects[sk] || []
-  if (!list.find(function(x){return x.worktree===dir})) {
-    list.unshift({worktree:dir,expanded:true})
-    store.projects[sk] = list
-    blog("seeded current project")
+  store.projects = store.projects || {}
+  store.lastProject = store.lastProject || {}
+  if (dir) {
+    store.projects[sk] = [{worktree: dir, expanded: true}]
+    store.lastProject[sk] = dir
+    blog("reset to current project only: " + dir)
+  } else {
+    blog("no directory, skipping project seed")
   }
-  store.lastProject[sk] = dir
-  save(store)
+  localStorage.setItem(key, JSON.stringify(store))
+  blog("verify: " + (store.projects[sk] || []).length + " projects under key '" + sk + "'")
   var lk = "opencode.global.dat:layout"
   if (!localStorage.getItem(lk)) {
     localStorage.setItem(lk, JSON.stringify({review:{diffStyle:"split",panelOpened:false}}))
     blog("seeded layout (review panel closed)")
   }
-  var xhr = new XMLHttpRequest()
-  try {
-    xhr.open("GET", "/project?directory=" + encodeURIComponent(dir), false)
-    xhr.send()
-    if (xhr.status === 200) {
-      var projects = JSON.parse(xhr.responseText)
-      if (Array.isArray(projects)) {
-        var s = load()
-        var existing = s.projects[sk] || []
-        var seen = {}
-        existing.forEach(function(x){ seen[x.worktree] = true })
-        var added = 0
-        projects.forEach(function(proj){
-          if (!proj || !proj.worktree || seen[proj.worktree]) return
-          if (proj.worktree.indexOf("opencode-test") !== -1) return
-          existing.push({worktree:proj.worktree,expanded:false})
-          seen[proj.worktree] = true
-          added++
-        })
-        if (added > 0) {
-          s.projects[sk] = existing
-          save(s)
-        }
-        blog("fetched " + projects.length + " projects, added=" + added + " total=" + existing.length)
-      } else {
-        blog("project fetch: not an array")
-      }
-    } else {
-      blog("project fetch failed status=" + xhr.status)
-    }
-  } catch(e) { blog("project fetch error: " + e.message) }
-  var verify = load()
-  var verifyList = (verify.projects && verify.projects[sk]) || []
-  blog("verify: " + verifyList.length + " projects under key '" + sk + "'")
   var lps = (store.lastProject && store.lastProject[sk]) || "none"
   var lpsKey = "opencode.global.dat:layout"
   var lpsRaw = localStorage.getItem(lpsKey)

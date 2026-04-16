@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, request, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { API, start } from "./server.js"
 
@@ -33,6 +34,104 @@ function get(port: number, path: string): Promise<{ status: number; body: string
     r.on("error", reject)
     r.end()
   })
+}
+
+function boot(body: string) {
+  const m = body.match(/<script>([\s\S]*?)<\/script>/)
+  if (!m) throw new Error("missing bootstrap")
+  return m[1]
+}
+
+function slug(dir: string) {
+  return Buffer.from(dir, "binary").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
+}
+
+function run(script: string, dir: string, data: unknown) {
+  const map = new Map<string, string>()
+  if (data !== undefined) map.set("opencode.global.dat:server", JSON.stringify(data))
+  const localStorage = {
+    getItem(key: string) {
+      const value = map.get(key)
+      return value ?? null
+    },
+    setItem(key: string, value: string) {
+      map.set(key, value)
+    },
+  }
+  const document = {
+    activeElement: null,
+    addEventListener() {},
+    body: { appendChild() {}, removeChild() {} },
+    createElement() {
+      return {
+        style: { cssText: "" },
+        appendChild() {},
+        addEventListener() {},
+        getBoundingClientRect() {
+          return { width: 0, height: 0 }
+        },
+        parentNode: { removeChild() {} },
+        textContent: "",
+      }
+    },
+    createTextNode(text: string) {
+      return { textContent: text }
+    },
+    createRange() {
+      return { selectNodeContents() {} }
+    },
+    execCommand() {
+      return false
+    },
+  }
+  const window = {
+    addEventListener() {},
+    getSelection() {
+      return {
+        rangeCount: 0,
+        toString() {
+          return ""
+        },
+      }
+    },
+    innerHeight: 768,
+    innerWidth: 1024,
+    parent: { postMessage() {} },
+  }
+  class XHR {
+    status = 200
+    responseText = "[]"
+
+    open() {}
+
+    send() {}
+  }
+  const ctx = {
+    JSON,
+    Object,
+    XMLHttpRequest: XHR,
+    atob(value: string) {
+      const pad = (4 - (value.length % 4 || 4)) % 4
+      return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad), "base64").toString("binary")
+    },
+    decodeURIComponent,
+    document,
+    escape(value: string) {
+      return value
+    },
+    localStorage,
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost:1",
+      pathname: `/${slug(dir)}`,
+    },
+    navigator: { platform: "Mac" },
+    window,
+  }
+
+  ;(window as typeof window & { document: typeof document }).document = document
+  runInNewContext(script, ctx)
+  return JSON.parse(map.get("opencode.global.dat:server") ?? "null")
 }
 
 beforeAll(async () => {
@@ -110,6 +209,34 @@ describe("spa static fallback", () => {
   it("injects bootstrap script into html", async () => {
     const res = await get(spa.port, "/")
     expect(res.body).toContain("opencode.global.dat:server")
+  })
+
+  it("resets bootstrap projects to the current workspace only", async () => {
+    const res = await get(spa.port, "/")
+    expect(boot(res.body)).toContain("store.projects[sk] = [{worktree: dir, expanded: true}]")
+  })
+
+  it("removes the bootstrap project fetch xhr", async () => {
+    const res = await get(spa.port, "/")
+    expect(boot(res.body)).not.toContain('xhr.open("GET", "/project')
+  })
+
+  it("drops stale projects and keeps only the current workspace at runtime", async () => {
+    const dir = "/tmp/current"
+    const res = await get(spa.port, "/")
+    const data = run(boot(res.body), dir, {
+      lastProject: { local: "/tmp/stale" },
+      list: [],
+      projects: {
+        local: [
+          { worktree: "/tmp/stale-a", expanded: false },
+          { worktree: "/tmp/stale-b", expanded: false },
+        ],
+      },
+    })
+
+    expect(data.projects.local).toEqual([{ worktree: dir, expanded: true }])
+    expect(data.lastProject.local).toBe(dir)
   })
 
   it("falls back to index.html for SPA routes", async () => {
