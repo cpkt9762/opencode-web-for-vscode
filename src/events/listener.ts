@@ -4,9 +4,14 @@ import { safe } from "../utils/retry.js"
 export const EVENT_TYPES = {
   server_connected: "server.connected",
   server_heartbeat: "server.heartbeat",
+  file_edited: "file.edited",
+  file_watcher_updated: "file.watcher.updated",
   session_created: "session.created",
   session_updated: "session.updated",
   session_deleted: "session.deleted",
+  session_status: "session.status",
+  session_diff: "session.diff",
+  session_idle: "session.idle",
   message_created: "message.created",
   message_updated: "message.updated",
   message_completed: "message.completed",
@@ -15,6 +20,7 @@ export const EVENT_TYPES = {
   provider_updated: "provider.updated",
 } as const
 
+// biome-ignore lint/correctness/noUnusedVariables: Documents known backend event names; parse accepts future backend events too.
 const TYPES = new Set<string>(Object.values(EVENT_TYPES))
 const RETRY_MS = 250
 const HEART_MS = 15_000
@@ -65,7 +71,7 @@ function aborted(error: unknown) {
 
 function parse(input: unknown) {
   if (!record(input) || typeof input.type !== "string") return
-  if (!TYPES.has(input.type)) return
+  if (!input.type) return
   return {
     type: input.type,
     properties: input.properties,

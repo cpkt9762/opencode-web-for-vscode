@@ -258,6 +258,21 @@
           "type": "string",
           "default": "",
           "description": "Password for shared opencode server. When set, connects to an existing server using this password instead of starting a new one."
+        },
+        "opencode.notifications.fileEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications when the AI agent edits files"
+        },
+        "opencode.notifications.sessionComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notification when the AI agent finishes working"
+        },
+        "opencode.autoDiff": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open diff panel for files edited by the AI agent"
         }
       }
     }

@@ -104,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(output)
 
   const { writeFileSync, appendFileSync } = await import("node:fs")
-  const { join } = await import("node:path")
+  const { join, basename } = await import("node:path")
   const log = join(context.extensionPath, "debug.log")
   writeFileSync(log, `=== OpenCode Debug Log ===\n${new Date().toISOString()}\n\n`)
   dump = (msg: string) => {
@@ -114,6 +114,141 @@ export async function activate(context: vscode.ExtensionContext) {
     const line = `[${new Date().toISOString()}] ${msg}`
     output.appendLine(line)
     appendFileSync(log, `${line}\n`)
+  }
+  function filePayload(v: unknown): v is { file: string } {
+    return obj(v) && typeof (v as Record<string, unknown>).file === "string"
+  }
+  function sessionStatusPayload(v: unknown): v is { sessionID: string; status: { type: string } } {
+    if (!obj(v)) return false
+    const r = v as Record<string, unknown>
+    if (typeof r.sessionID !== "string") return false
+    if (!obj(r.status)) return false
+    return typeof (r.status as Record<string, unknown>).type === "string"
+  }
+  function sessionIdlePayload(v: unknown): v is { sessionID: string } {
+    return obj(v) && typeof (v as Record<string, unknown>).sessionID === "string"
+  }
+  const pendingFiles = new Map<string, number>()
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  const DEBOUNCE_MS = 2000
+
+  function handleFileEdited(filePath: string) {
+    pendingFiles.delete(filePath)
+    pendingFiles.set(filePath, Date.now())
+    if (debounceTimer) clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(flushPendingFiles, DEBOUNCE_MS)
+    debounceTimer.unref?.()
+  }
+  async function flushPendingFiles() {
+    debounceTimer = undefined
+    if (pendingFiles.size === 0) return
+    const snapshot = new Map(pendingFiles)
+    pendingFiles.clear()
+    await notifyFileEdits(snapshot)
+    await openDiffsForSnapshot(snapshot)
+  }
+  async function notifyFileEdits(snapshot: Map<string, number>) {
+    const cfg = vscode.workspace.getConfiguration("opencode")
+    if (!cfg.get<boolean>("notifications.fileEdits", true)) return
+
+    let lastFile: string | undefined
+    for (const key of snapshot.keys()) lastFile = key
+    if (!lastFile) return
+
+    const message =
+      snapshot.size === 1 ? `OpenCode edited: ${basename(lastFile)}` : `OpenCode edited ${snapshot.size} files`
+
+    const action = await vscode.window.showInformationMessage(message, "Open File")
+    if (action === "Open File") {
+      await vscode.window.showTextDocument(vscode.Uri.file(lastFile))
+    }
+  }
+  type GitResource = { uri: vscode.Uri }
+  type GitRepository = {
+    rootUri: vscode.Uri
+    state: { untrackedChanges: readonly GitResource[] }
+    status: () => Thenable<void>
+  }
+  type GitApi = {
+    repositories: readonly GitRepository[]
+    getRepository: (uri: vscode.Uri) => GitRepository | null
+  }
+  async function openDiffsForSnapshot(snapshot: Map<string, number>) {
+    const cfg = vscode.workspace.getConfiguration("opencode")
+    if (!cfg.get<boolean>("autoDiff", false)) return
+
+    const gitExt = vscode.extensions.getExtension("vscode.git")
+    if (!gitExt || !gitExt.isActive) {
+      trace("autoDiff: git extension not active, skipping")
+      return
+    }
+
+    let gitApi: GitApi
+    try {
+      gitApi = (gitExt.exports as { getAPI: (v: number) => GitApi }).getAPI(1)
+    } catch (err) {
+      trace(`autoDiff: git.getAPI(1) threw, skipping: ${String(err)}`)
+      return
+    }
+
+    const fileToRepo = new Map<string, GitRepository>()
+    const uniqueRepos = new Map<string, GitRepository>()
+    for (const filePath of snapshot.keys()) {
+      const repo = gitApi.getRepository(vscode.Uri.file(filePath))
+      if (!repo) {
+        trace(`autoDiff: no git repo for ${filePath}`)
+        continue
+      }
+      fileToRepo.set(filePath, repo)
+      uniqueRepos.set(repo.rootUri.fsPath, repo)
+    }
+
+    await Promise.all(
+      Array.from(uniqueRepos.values()).map(async (repo) => {
+        try {
+          await repo.status()
+        } catch (err) {
+          trace(`autoDiff: repo.status() failed for ${repo.rootUri.fsPath}: ${String(err)}`)
+        }
+      }),
+    )
+
+    for (const [filePath, repo] of fileToRepo) {
+      const uri = vscode.Uri.file(filePath)
+      const isUntracked = repo.state.untrackedChanges.some((resource) => resource.uri.fsPath === filePath)
+
+      try {
+        if (isUntracked) {
+          const emptyUri = vscode.Uri.parse(`untitled:${basename(filePath)}.empty`)
+          const title = `${basename(filePath)} (New File)`
+          await vscode.commands.executeCommand("vscode.diff", emptyUri, uri, title)
+        } else {
+          await vscode.commands.executeCommand("git.openChange", uri)
+        }
+      } catch (err) {
+        trace(`autoDiff: failed for ${filePath}: ${String(err)}`)
+      }
+    }
+  }
+  const statusMap = new Map<string, string>()
+  async function handleSessionIdle(sessionID: string) {
+    const cfg = vscode.workspace.getConfiguration("opencode")
+    if (!cfg.get<boolean>("notifications.sessionComplete", true)) return
+
+    const last = statusMap.get(sessionID)
+    if (last !== "busy") return
+
+    statusMap.set(sessionID, "idle")
+
+    const action = await vscode.window.showInformationMessage("OpenCode: Agent completed", "View Session")
+    if (action === "View Session") {
+      await vscode.commands.executeCommand("workbench.view.extension.opencode-web")
+      await vscode.commands.executeCommand("opencode-web.chatView.focus")
+      bridge?.post(MSG.navigate, { sessionId: sessionID })
+    }
+  }
+  function handleSessionStatus(sessionID: string, statusType: string) {
+    statusMap.set(sessionID, statusType)
   }
   trace("[ext] activate")
 
@@ -200,8 +335,18 @@ export async function activate(context: vscode.ExtensionContext) {
   const lens = new OpenCodeLensProvider()
   const events = new EventListener({
     getClient: getSdk,
-    onEvent: (type) => {
+    onEvent: (type, payload) => {
       output.appendLine(`[SSE] ${type}`)
+
+      if (type === "file.edited" && filePayload(payload)) handleFileEdited(payload.file)
+      if (type === "session.idle" && sessionIdlePayload(payload)) handleSessionIdle(payload.sessionID)
+      if (type === "session.status" && sessionStatusPayload(payload))
+        handleSessionStatus(payload.sessionID, payload.status.type)
+
+      if (type === "file.watcher.updated") {
+        sessions.refresh()
+        providers.refresh()
+      }
 
       if (type.startsWith("session.")) sessions.refresh()
       if (type.startsWith("provider.")) providers.refresh()

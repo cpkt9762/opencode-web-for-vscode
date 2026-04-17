@@ -149,6 +149,144 @@ describe("EventListener", () => {
     item.stop()
   })
 
+  it("routes file.edited events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: EVENT_TYPES.file_edited,
+      properties: { file: "/foo.ts" },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith(EVENT_TYPES.file_edited, { file: "/foo.ts" })
+    })
+
+    item.stop()
+  })
+
+  it("routes file.watcher.updated events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: EVENT_TYPES.file_watcher_updated,
+      properties: { file: "/bar.ts", event: "change" },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith(EVENT_TYPES.file_watcher_updated, { file: "/bar.ts", event: "change" })
+    })
+
+    item.stop()
+  })
+
+  it("routes session.status events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: EVENT_TYPES.session_status,
+      properties: {
+        sessionID: "ses_1",
+        status: { type: "busy" },
+      },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith(EVENT_TYPES.session_status, {
+        sessionID: "ses_1",
+        status: { type: "busy" },
+      })
+    })
+
+    item.stop()
+  })
+
+  it("routes session.diff events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: EVENT_TYPES.session_diff,
+      properties: {
+        sessionID: "ses_1",
+        diff: [],
+      },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith(EVENT_TYPES.session_diff, {
+        sessionID: "ses_1",
+        diff: [],
+      })
+    })
+
+    item.stop()
+  })
+
+  it("routes session.idle events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: EVENT_TYPES.session_idle,
+      properties: { sessionID: "ses_1" },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith(EVENT_TYPES.session_idle, { sessionID: "ses_1" })
+    })
+
+    item.stop()
+  })
+
+  it("routes unknown future events to onEvent callback", async () => {
+    const sdk = make()
+    const onEvent = vi.fn()
+    const item = new EventListener({
+      getClient: () => sdk.client,
+      onEvent,
+    })
+
+    await item.start()
+    sdk.calls[0]?.item.push({
+      type: "some.unknown.future.event",
+      properties: { x: 1 },
+    })
+
+    await vi.waitFor(() => {
+      expect(onEvent).toHaveBeenCalledWith("some.unknown.future.event", { x: 1 })
+    })
+
+    item.stop()
+  })
+
   it("stop closes connection", async () => {
     const sdk = make()
     const item = new EventListener({
@@ -223,9 +361,14 @@ describe("EventListener", () => {
     expect(EVENT_TYPES).toEqual({
       server_connected: "server.connected",
       server_heartbeat: "server.heartbeat",
+      file_edited: "file.edited",
+      file_watcher_updated: "file.watcher.updated",
       session_created: "session.created",
       session_updated: "session.updated",
       session_deleted: "session.deleted",
+      session_status: "session.status",
+      session_diff: "session.diff",
+      session_idle: "session.idle",
       message_created: "message.created",
       message_updated: "message.updated",
       message_completed: "message.completed",
