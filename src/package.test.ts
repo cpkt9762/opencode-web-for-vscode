@@ -16,6 +16,12 @@ type Menu = {
 type Pkg = {
   contributes?: {
     commands?: Cmd[]
+    keybindings?: {
+      key?: string
+      mac?: string
+      command?: string
+      when?: string
+    }[]
     menus?: {
       "view/item/context"?: Menu[]
     }
@@ -64,6 +70,21 @@ describe("package.json", () => {
           command: "opencode-web.deleteSession",
           when: "viewItem == session",
           group: "session@4",
+        }),
+      ]),
+    )
+  })
+
+  it("declares sidebar toggle keybinding for chat view", () => {
+    const list = pkg().contributes?.keybindings ?? []
+
+    expect(list).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ctrl+b",
+          mac: "cmd+b",
+          command: "workbench.action.toggleSidebarVisibility",
+          when: "focusedView == opencode-web.chatView",
         }),
       ]),
     )

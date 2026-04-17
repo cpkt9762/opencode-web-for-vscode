@@ -193,6 +193,12 @@
         "key": "ctrl+shift+n",
         "mac": "cmd+shift+n",
         "when": "editorTextFocus"
+      },
+      {
+        "key": "ctrl+b",
+        "mac": "cmd+b",
+        "command": "workbench.action.toggleSidebarVisibility",
+        "when": "focusedView == opencode-web.chatView"
       }
     ],
     "viewsContainers": {
