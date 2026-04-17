@@ -5,7 +5,9 @@ ROOT := $(shell pwd)
 REPO := $(abspath $(ROOT)/..)
 EXT_VERSION := $(shell node -p "require('./package.json').version")
 EXT_ID := opencode.opencode-web-for-vscode-$(EXT_VERSION)
-INSTALLED_DIR := $(HOME)/.vscode/extensions/$(EXT_ID)
+INSTALLED_ROOT := $(HOME)/.vscode/extensions
+EXT_GLOB := opencode.opencode-web-for-vscode-*
+INSTALLED_DIR := $(INSTALLED_ROOT)/$(EXT_ID)
 INSTALLED_LOG := $(INSTALLED_DIR)/debug.log
 
 PKG_NAME := opencode-web-for-vscode
@@ -137,8 +139,8 @@ uninstall:
 reinstall: vsix
 	@echo ">> Uninstalling extension via VSCode CLI..."
 	code --uninstall-extension opencode.opencode-web-for-vscode || true
-	@echo ">> Purging cached extension dir: $(INSTALLED_DIR)"
-	@rm -rf "$(INSTALLED_DIR)"
+	@echo ">> Purging ALL installed version dirs: $(INSTALLED_ROOT)/$(EXT_GLOB)"
+	@rm -rf "$(INSTALLED_ROOT)"/$(EXT_GLOB)
 	@echo ">> Installing fresh VSIX..."
 	code --install-extension $(VSIX) --force
 	@echo ">> Reload VSCode (Cmd+Shift+P → Developer: Reload Window) to activate."
