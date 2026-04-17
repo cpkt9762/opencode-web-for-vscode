@@ -301,6 +301,10 @@ function page(url: string, state: State, folder?: string) {
         vscode.postMessage({ type: "opencode-web.clipboard-write", text: event.data.text })
         return
       }
+      if (event.data?.type === "opencode.clipboard.write") {
+        vscode.postMessage({ type: "opencode.clipboard.write", text: event.data.text })
+        return
+      }
       if (event.data?.type === "opencode-web.clipboard-read") {
         vscode.postMessage({ type: "opencode-web.clipboard-read" })
         return
@@ -478,7 +482,7 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
           if (this.onSession) this.onSession(sid ?? null)
           return
         }
-        if (type === "opencode-web.clipboard-write") {
+        if (type === "opencode-web.clipboard-write" || type === "opencode.clipboard.write") {
           const text = (input as { text?: string }).text ?? ""
           void api().env.clipboard.writeText(text)
           if (this.log) this.log(`[clipboard] write ${text.length} chars`)

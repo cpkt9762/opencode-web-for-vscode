@@ -139,6 +139,148 @@ function run(script: string, dir: string, data: unknown) {
   return JSON.parse(map.get("opencode.global.dat:server") ?? "null")
 }
 
+function runClipboard(
+  script: string,
+  opts: {
+    acquireVsCodeApi?: () => { postMessage: (input: { text: string; type: string }) => void }
+    execCommand?: (command: string) => boolean
+    nativeWriteText?: (text: string) => Promise<void>
+    useParentPostMessage?: boolean
+  } = {},
+) {
+  const map = new Map<string, string>()
+  map.set("opencode.global.dat:server", JSON.stringify({ lastProject: {}, list: [], projects: {} }))
+  const commands: string[] = []
+  const messages: Array<{ text: string; type: string }> = []
+  const textareas: Array<{ value: string }> = []
+  const localStorage = {
+    getItem(key: string) {
+      const value = map.get(key)
+      return value ?? null
+    },
+    setItem(key: string, value: string) {
+      map.set(key, value)
+    },
+  }
+  const document = {
+    activeElement: null,
+    addEventListener() {},
+    body: {
+      appendChild() {},
+      removeChild() {},
+    },
+    createElement(tag?: string) {
+      if (tag === "textarea") {
+        const item = {
+          focus() {},
+          parentNode: { removeChild() {} },
+          select() {},
+          setAttribute() {},
+          style: {} as Record<string, string>,
+          value: "",
+        }
+        textareas.push(item)
+        return item
+      }
+
+      return {
+        style: { cssText: "" },
+        appendChild() {},
+        addEventListener() {},
+        getBoundingClientRect() {
+          return { height: 0, width: 0 }
+        },
+        parentNode: { removeChild() {} },
+        textContent: "",
+      }
+    },
+    createRange() {
+      return { selectNodeContents() {} }
+    },
+    createTextNode(text: string) {
+      return { textContent: text }
+    },
+    execCommand(command: string) {
+      commands.push(command)
+      return opts.execCommand?.(command) ?? false
+    },
+  }
+  const window = {
+    __opencodeVscodeApi: undefined as ReturnType<NonNullable<typeof opts.acquireVsCodeApi>> | undefined,
+    addEventListener() {},
+    getSelection() {
+      return {
+        rangeCount: 0,
+        toString() {
+          return ""
+        },
+      }
+    },
+    innerHeight: 768,
+    innerWidth: 1024,
+    parent:
+      opts.useParentPostMessage === false
+        ? undefined
+        : {
+            postMessage(input: { text: string; type: string }) {
+              messages.push(input)
+            },
+          },
+  }
+  const navigator = {
+    clipboard: opts.nativeWriteText ? { writeText: opts.nativeWriteText } : undefined,
+    platform: "Mac",
+  }
+  class XHR {
+    status = 200
+    responseText = "[]"
+
+    open() {}
+
+    send() {}
+  }
+  const ctx = {
+    Error,
+    JSON,
+    Object,
+    Promise,
+    XMLHttpRequest: XHR,
+    acquireVsCodeApi: opts.acquireVsCodeApi,
+    atob(value: string) {
+      const pad = (4 - (value.length % 4 || 4)) % 4
+      return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad), "base64").toString("binary")
+    },
+    decodeURIComponent,
+    document,
+    escape(value: string) {
+      return value
+    },
+    localStorage,
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost:1",
+      pathname: `/${slug("/tmp/current")}`,
+    },
+    navigator,
+    window,
+  }
+
+  ;(window as typeof window & { document: typeof document }).document = document
+  runInNewContext(script, ctx)
+  return {
+    commands,
+    ctx: ctx as typeof ctx & {
+      navigator: {
+        clipboard: {
+          writeText: (text: string) => Promise<void>
+        }
+      }
+    },
+    messages,
+    textareas,
+  }
+}
+
 beforeAll(async () => {
   backend = createServer((req, res) => {
     res.setHeader("content-type", "application/json")
@@ -403,6 +545,77 @@ describe("spa static fallback", () => {
           shellToolPartsExpanded: true,
         },
       })
+    })
+  })
+
+  describe("clipboard polyfill bootstrap", () => {
+    it("passes through successful native navigator.clipboard.writeText calls", async () => {
+      const res = await get(spa.port, "/")
+      const host: Array<{ text: string; type: string }> = []
+      const native: string[] = []
+      const env = runClipboard(boot(res.body), {
+        acquireVsCodeApi() {
+          return {
+            postMessage(input) {
+              host.push(input)
+            },
+          }
+        },
+        execCommand() {
+          return true
+        },
+        nativeWriteText(text) {
+          native.push(text)
+          return Promise.resolve()
+        },
+      })
+
+      await expect(env.ctx.navigator.clipboard.writeText("hello")).resolves.toBeUndefined()
+      expect(native).toEqual(["hello"])
+      expect(env.commands).toEqual([])
+      expect(host).toEqual([])
+    })
+
+    it("falls back to document.execCommand when native clipboard write rejects", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body), {
+        execCommand(command) {
+          return command === "copy"
+        },
+        nativeWriteText() {
+          return Promise.reject(new Error("denied"))
+        },
+      })
+
+      await expect(env.ctx.navigator.clipboard.writeText("hello")).resolves.toBeUndefined()
+      expect(env.commands).toEqual(["copy"])
+      expect(env.messages.filter((item) => item.type === "opencode.clipboard.write")).toEqual([])
+      expect(env.textareas[0]?.value).toBe("hello")
+    })
+
+    it("posts a vscode host clipboard message when native and execCommand copy both fail", async () => {
+      const res = await get(spa.port, "/")
+      const host: Array<{ text: string; type: string }> = []
+      const env = runClipboard(boot(res.body), {
+        acquireVsCodeApi() {
+          return {
+            postMessage(input) {
+              host.push(input)
+            },
+          }
+        },
+        execCommand() {
+          return false
+        },
+        nativeWriteText() {
+          return Promise.reject(new Error("denied"))
+        },
+        useParentPostMessage: false,
+      })
+
+      await expect(env.ctx.navigator.clipboard.writeText("hello")).resolves.toBeUndefined()
+      expect(env.commands).toEqual(["copy"])
+      expect(host).toEqual([{ text: "hello", type: "opencode.clipboard.write" }])
     })
   })
 

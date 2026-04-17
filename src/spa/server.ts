@@ -110,6 +110,106 @@ const BOOTSTRAP = `<script>
     localStorage.setItem(skey, JSON.stringify(s))
     blog("seeded shellToolPartsExpanded=true editToolPartsExpanded=true")
   }
+  ;(function() {
+    if (typeof navigator === "undefined") return
+    var origWrite = null
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        origWrite = navigator.clipboard.writeText.bind(navigator.clipboard)
+      }
+    } catch(e) {
+      blog("clipboard native probe failed: " + e.message)
+    }
+    function getVscodeApi() {
+      if (typeof window === "undefined") return null
+      if (window.__opencodeVscodeApi) return window.__opencodeVscodeApi
+      if (typeof acquireVsCodeApi !== "function") return null
+      try {
+        window.__opencodeVscodeApi = acquireVsCodeApi()
+      } catch(e) {
+        blog("acquireVsCodeApi failed: " + e.message)
+        return null
+      }
+      return window.__opencodeVscodeApi
+    }
+    function removeNode(node) {
+      if (!node) return
+      try {
+        if (node.parentNode && typeof node.parentNode.removeChild === "function") {
+          node.parentNode.removeChild(node)
+          return
+        }
+        if (document.body && typeof document.body.removeChild === "function") {
+          document.body.removeChild(node)
+        }
+      } catch(e) {
+        blog("textarea cleanup failed: " + e.message)
+      }
+    }
+    function execCommandCopy(text) {
+      if (typeof document === "undefined") return false
+      if (!document.body || typeof document.createElement !== "function") return false
+      var ta = null
+      try {
+        ta = document.createElement("textarea")
+        ta.value = text
+        if (typeof ta.setAttribute === "function") ta.setAttribute("readonly", "")
+        if (ta.style) {
+          ta.style.position = "fixed"
+          ta.style.left = "-9999px"
+          ta.style.top = "0"
+        }
+        document.body.appendChild(ta)
+        if (typeof ta.focus === "function") ta.focus()
+        if (typeof ta.select === "function") ta.select()
+        var ok = typeof document.execCommand === "function" ? document.execCommand("copy") : false
+        removeNode(ta)
+        return ok === true
+      } catch(e) {
+        blog("execCommand copy failed: " + e.message)
+        removeNode(ta)
+        return false
+      }
+    }
+    function postMessageCopy(text) {
+      var api = getVscodeApi()
+      if (api && typeof api.postMessage === "function") {
+        try {
+          api.postMessage({ type: "opencode.clipboard.write", text: text })
+          return true
+        } catch(e) {
+          blog("vscode api postMessage failed: " + e.message)
+        }
+      }
+      if (typeof window === "undefined" || !window.parent || typeof window.parent.postMessage !== "function") return false
+      try {
+        window.parent.postMessage({ type: "opencode.clipboard.write", text: text }, "*")
+        return true
+      } catch(e) {
+        blog("postMessage copy failed: " + e.message)
+        return false
+      }
+    }
+    function fallbackWriteText(text) {
+      if (execCommandCopy(text)) return Promise.resolve()
+      if (postMessageCopy(text)) return Promise.resolve()
+      return Promise.reject(new Error("clipboard unavailable in webview"))
+    }
+    try {
+      if (!navigator.clipboard) navigator.clipboard = {}
+      navigator.clipboard.writeText = function(text) {
+        if (origWrite) {
+          return origWrite(text).catch(function() {
+            return fallbackWriteText(text)
+          })
+        }
+        return fallbackWriteText(text)
+      }
+      blog("clipboard polyfill installed")
+    } catch(e) {
+      blog("clipboard polyfill install failed: " + e.message)
+    }
+  })()
   var lps = (store.lastProject && store.lastProject[sk]) || "none"
   var lpsKey = "opencode.global.dat:layout"
   var lpsRaw = localStorage.getItem(lpsKey)
