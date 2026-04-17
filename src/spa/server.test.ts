@@ -3,7 +3,7 @@ import { createServer, request, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { API, start } from "./server.js"
 
 const tmp = mkdtempSync(join(tmpdir(), "spa-server-"))
@@ -142,7 +142,7 @@ function run(script: string, dir: string, data: unknown) {
 function runClipboard(
   script: string,
   opts: {
-    acquireVsCodeApi?: () => { postMessage: (input: { text: string; type: string }) => void }
+    acquireVsCodeApi?: () => { postMessage: (input: { command?: string; text?: string; type: string }) => void }
     execCommand?: (command: string) => boolean
     nativeWriteText?: (text: string) => Promise<void>
     useParentPostMessage?: boolean
@@ -151,7 +151,13 @@ function runClipboard(
   const map = new Map<string, string>()
   map.set("opencode.global.dat:server", JSON.stringify({ lastProject: {}, list: [], projects: {} }))
   const commands: string[] = []
-  const messages: Array<{ text: string; type: string }> = []
+  const documentListeners: Array<{
+    capture: boolean
+    handler: (input: Record<string, unknown>) => void
+    type: string
+  }> = []
+  const messages: Array<{ command?: string; text?: string; type: string }> = []
+  const styles: string[] = []
   const textareas: Array<{ value: string }> = []
   const localStorage = {
     getItem(key: string) {
@@ -164,10 +170,25 @@ function runClipboard(
   }
   const document = {
     activeElement: null,
-    addEventListener() {},
+    addEventListener(
+      type: string,
+      handler: (input: Record<string, unknown>) => void,
+      options?: boolean | AddEventListenerOptions,
+    ) {
+      documentListeners.push({
+        capture: options === true || (typeof options === "object" && options.capture === true),
+        handler,
+        type,
+      })
+    },
     body: {
       appendChild() {},
       removeChild() {},
+    },
+    head: {
+      appendChild(node: { textContent?: string }) {
+        styles.push(node.textContent ?? "")
+      },
     },
     createElement(tag?: string) {
       if (tag === "textarea") {
@@ -184,6 +205,7 @@ function runClipboard(
       }
 
       return {
+        id: "",
         style: { cssText: "" },
         appendChild() {},
         addEventListener() {},
@@ -222,7 +244,7 @@ function runClipboard(
       opts.useParentPostMessage === false
         ? undefined
         : {
-            postMessage(input: { text: string; type: string }) {
+            postMessage(input: { command?: string; text?: string; type: string }) {
               messages.push(input)
             },
           },
@@ -276,7 +298,9 @@ function runClipboard(
         }
       }
     },
+    documentListeners,
     messages,
+    styles,
     textareas,
   }
 }
@@ -551,7 +575,7 @@ describe("spa static fallback", () => {
   describe("clipboard polyfill bootstrap", () => {
     it("passes through successful native navigator.clipboard.writeText calls", async () => {
       const res = await get(spa.port, "/")
-      const host: Array<{ text: string; type: string }> = []
+      const host: Array<{ command?: string; text?: string; type: string }> = []
       const native: string[] = []
       const env = runClipboard(boot(res.body), {
         acquireVsCodeApi() {
@@ -595,7 +619,7 @@ describe("spa static fallback", () => {
 
     it("posts a vscode host clipboard message when native and execCommand copy both fail", async () => {
       const res = await get(spa.port, "/")
-      const host: Array<{ text: string; type: string }> = []
+      const host: Array<{ command?: string; text?: string; type: string }> = []
       const env = runClipboard(boot(res.body), {
         acquireVsCodeApi() {
           return {
@@ -616,6 +640,106 @@ describe("spa static fallback", () => {
       await expect(env.ctx.navigator.clipboard.writeText("hello")).resolves.toBeUndefined()
       expect(env.commands).toEqual(["copy"])
       expect(host).toEqual([{ text: "hello", type: "opencode.clipboard.write" }])
+    })
+  })
+
+  describe("toolbar hide + shortcut forward bootstrap", () => {
+    it("ships CSS selectors for all three toolbar buttons", async () => {
+      const res = await get(spa.port, "/")
+      const script = boot(res.body)
+
+      expect(script).toContain('button[aria-controls="terminal-panel"]')
+      expect(script).toContain('button[aria-controls="file-tree-panel"]')
+      expect(script).toContain('button[aria-controls="review-panel"]')
+    })
+
+    it("registers a capture keydown handler and forwards ctrl+` to the VSCode terminal command", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+
+      expect(keydown).toBeDefined()
+      expect(env.styles).toEqual([
+        'button[aria-controls="terminal-panel"],' +
+          'button[aria-controls="file-tree-panel"],' +
+          'button[aria-controls="review-panel"] { display: none !important; }',
+      ])
+
+      const preventDefault = vi.fn()
+      const stopImmediatePropagation = vi.fn()
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: true,
+        key: "`",
+        metaKey: false,
+        preventDefault,
+        shiftKey: false,
+        stopImmediatePropagation,
+      })
+
+      expect(env.messages).toContainEqual({
+        command: "workbench.action.terminal.toggleTerminal",
+        type: "opencode.vscode.command",
+      })
+      expect(preventDefault).toHaveBeenCalledOnce()
+      expect(stopImmediatePropagation).toHaveBeenCalledOnce()
+    })
+
+    it("forwards mod+\\ to the VSCode explorer command", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: false,
+        key: "\\",
+        metaKey: true,
+        preventDefault() {},
+        shiftKey: false,
+        stopImmediatePropagation() {},
+      })
+
+      expect(env.messages).toContainEqual({
+        command: "workbench.view.explorer",
+        type: "opencode.vscode.command",
+      })
+    })
+
+    it("does not forward unrelated keys", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: true,
+        key: "a",
+        metaKey: false,
+        preventDefault() {},
+        shiftKey: false,
+        stopImmediatePropagation() {},
+      })
+
+      expect(env.messages.filter((item) => item.type === "opencode.vscode.command")).toEqual([])
+    })
+
+    it("requires an exact ctrl+` modifier match", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: true,
+        key: "`",
+        metaKey: false,
+        preventDefault() {},
+        shiftKey: true,
+        stopImmediatePropagation() {},
+      })
+
+      expect(env.messages.filter((item) => item.type === "opencode.vscode.command")).toEqual([])
     })
   })
 

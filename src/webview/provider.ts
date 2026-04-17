@@ -15,6 +15,8 @@ const MSG = {
   set_url: "opencode-web.setUrl",
 } as const
 
+const VSCODE_COMMANDS = new Set(["workbench.action.terminal.toggleTerminal", "workbench.view.explorer"])
+
 function api(): VS {
   const mod = Reflect.get(globalThis, "__opencode_vscode") as VS | undefined
   if (mod) return mod
@@ -305,6 +307,11 @@ function page(url: string, state: State, folder?: string) {
         vscode.postMessage({ type: "opencode.clipboard.write", text: event.data.text })
         return
       }
+      if (event.data?.type === "opencode.vscode.command") {
+        if (typeof event.data.command !== "string") return
+        vscode.postMessage({ type: "opencode.vscode.command", command: event.data.command })
+        return
+      }
       if (event.data?.type === "opencode-web.clipboard-read") {
         vscode.postMessage({ type: "opencode-web.clipboard-read" })
         return
@@ -495,6 +502,25 @@ export class OpenCodeWebviewProvider implements vscode.WebviewViewProvider {
               if (this.log) this.log(`[clipboard] read ${text.length} chars`)
               this.post("opencode-web.clipboard-text", { text })
             })
+          return
+        }
+        if (type === "opencode.vscode.command") {
+          const command = (input as { command?: unknown }).command
+          if (typeof command !== "string") return
+          if (!VSCODE_COMMANDS.has(command)) {
+            this.log?.(`[vscode-command] REJECTED ${command} (not in allowlist)`)
+            return
+          }
+          void api()
+            .commands.executeCommand(command)
+            .then(
+              () => {
+                this.log?.(`[vscode-command] executed ${command}`)
+              },
+              (err: unknown) => {
+                this.log?.(`[vscode-command] failed ${command}: ${String(err)}`)
+              },
+            )
           return
         }
         if (type === MSG.retry) {

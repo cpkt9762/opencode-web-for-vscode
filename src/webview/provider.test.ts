@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type * as vscode from "vscode"
 
 vi.mock("vscode", () => ({
+  commands: { executeCommand: vi.fn() },
   env: { clipboard: { readText: vi.fn(() => Promise.resolve("")), writeText: vi.fn() } },
 }))
 
@@ -63,6 +64,22 @@ function set(provider: OpenCodeWebviewProvider, state: string, opts?: { folder?:
   const fn = Reflect.get(provider, "setState") as (state: string, opts?: { folder?: string }) => void
   fn.call(provider, state, opts)
 }
+
+function hostApi(executeCommand = vi.fn()) {
+  return {
+    commands: { executeCommand },
+    env: {
+      clipboard: {
+        readText: vi.fn(() => Promise.resolve("")),
+        writeText: vi.fn(),
+      },
+    },
+  }
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, "__opencode_vscode")
+})
 
 describe("OpenCodeWebviewProvider", () => {
   it("resolveWebviewView sets enableScripts", () => {
@@ -234,5 +251,41 @@ describe("OpenCodeWebviewProvider", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:msg] type=opencode-web.spa-log msg=17 chars"))
     expect(log).toHaveBeenCalledWith("[SPA] [bootstrap] ready")
     expect(log).toHaveBeenCalledWith(expect.stringContaining("[webview:dispose]"))
+  })
+
+  it("executes an allowlisted VSCode command from webview messages", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const { item, state } = hook()
+    const executeCommand = vi.fn(() => Promise.resolve())
+    Reflect.set(globalThis, "__opencode_vscode", hostApi(executeCommand))
+
+    provider.resolveWebviewView(item)
+    state.msg?.({ type: "opencode.vscode.command", command: "workbench.action.terminal.toggleTerminal" })
+
+    expect(executeCommand).toHaveBeenCalledWith("workbench.action.terminal.toggleTerminal")
+  })
+
+  it("ignores non-allowlisted VSCode commands from webview messages", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const { item, state } = hook()
+    const executeCommand = vi.fn(() => Promise.resolve())
+    Reflect.set(globalThis, "__opencode_vscode", hostApi(executeCommand))
+
+    provider.resolveWebviewView(item)
+    state.msg?.({ type: "opencode.vscode.command", command: "danger.deleteAllFiles" })
+
+    expect(executeCommand).not.toHaveBeenCalled()
+  })
+
+  it("ignores non-string VSCode commands from webview messages", () => {
+    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
+    const { item, state } = hook()
+    const executeCommand = vi.fn(() => Promise.resolve())
+    Reflect.set(globalThis, "__opencode_vscode", hostApi(executeCommand))
+
+    provider.resolveWebviewView(item)
+    state.msg?.({ type: "opencode.vscode.command", command: 123 })
+
+    expect(executeCommand).not.toHaveBeenCalled()
   })
 })

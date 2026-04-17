@@ -210,6 +210,87 @@ const BOOTSTRAP = `<script>
       blog("clipboard polyfill install failed: " + e.message)
     }
   })()
+  ;(function() {
+    if (typeof document === "undefined") return
+    try {
+      var style = document.createElement("style")
+      style.id = "opencode-ext-toolbar-hide"
+      style.textContent =
+        'button[aria-controls="terminal-panel"],' +
+        'button[aria-controls="file-tree-panel"],' +
+        'button[aria-controls="review-panel"] { display: none !important; }'
+      if (document.head) {
+        document.head.appendChild(style)
+      } else {
+        document.addEventListener("DOMContentLoaded", function() {
+          if (document.head) document.head.appendChild(style)
+        })
+      }
+      blog("toolbar-hide CSS injected")
+    } catch(e) {
+      blog("toolbar-hide CSS inject failed: " + e.message)
+    }
+  })()
+  ;(function() {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return
+
+    var COMMANDS = {
+      explorer: "workbench.view.explorer",
+      terminal: "workbench.action.terminal.toggleTerminal",
+    }
+    var BACKSLASH = String.fromCharCode(92)
+    var BACKTICK = String.fromCharCode(96)
+
+    function forwardCommand(command) {
+      var api = (typeof window !== "undefined" && window.__opencodeVscodeApi) || null
+      if (!api && typeof acquireVsCodeApi === "function") {
+        try {
+          api = acquireVsCodeApi()
+          window.__opencodeVscodeApi = api
+        } catch(e) {}
+      }
+      var payload = { type: "opencode.vscode.command", command: command }
+      if (api && typeof api.postMessage === "function") {
+        try {
+          api.postMessage(payload)
+          return true
+        } catch(e) {
+          blog("vscode api forward failed: " + e.message)
+        }
+      }
+      if (typeof window === "undefined" || !window.parent || typeof window.parent.postMessage !== "function") return false
+      try {
+        window.parent.postMessage(payload, "*")
+        return true
+      } catch(e) {
+        blog("parent forward failed: " + e.message)
+        return false
+      }
+    }
+
+    document.addEventListener(
+      "keydown",
+      function(e) {
+        if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key === BACKTICK) {
+          if (forwardCommand(COMMANDS.terminal)) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            blog("forwarded ctrl+backtick to VSCode terminal")
+          }
+          return
+        }
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === BACKSLASH) {
+          if (forwardCommand(COMMANDS.explorer)) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            blog("forwarded mod+backslash to VSCode explorer")
+          }
+        }
+      },
+      true,
+    )
+    blog("keydown-forward listener installed")
+  })()
   var lps = (store.lastProject && store.lastProject[sk]) || "none"
   var lpsKey = "opencode.global.dat:layout"
   var lpsRaw = localStorage.getItem(lpsKey)
