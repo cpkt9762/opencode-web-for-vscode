@@ -1,4 +1,5 @@
 import * as vscode from "vscode"
+import type { ProcessManager } from "../process/manager.js"
 import { createTerminal } from "../terminal/pty.js"
 import { showDiff } from "../views/diff.js"
 import { type MessageBridge, MSG } from "../webview/bridge.js"
@@ -26,6 +27,13 @@ type Opts = {
   sessions?: {
     refresh: () => void
   }
+  manager?: ProcessManager
+  output?: vscode.OutputChannel
+  getSpaUrl?: () => string | undefined
+}
+
+function errMsg(err: unknown) {
+  return err instanceof Error ? err.message : String(err)
 }
 
 async function ask(prompt: string, placeHolder?: string) {
@@ -99,25 +107,58 @@ export function registerCommands(
     {
       id: "opencode-web.openInBrowser",
       handler: async () => {
-        await vscode.window.showInformationMessage("Not implemented yet")
+        const url = opts.getSpaUrl?.() ?? opts.manager?.getUrl() ?? undefined
+        if (!url) {
+          await vscode.window.showWarningMessage("OpenCode: Server is not running")
+          return
+        }
+        await vscode.env.openExternal(vscode.Uri.parse(url))
       },
     },
     {
       id: "opencode-web.restart",
       handler: async () => {
-        await vscode.window.showInformationMessage("Not implemented yet")
+        const manager = opts.manager
+        if (!manager) {
+          await vscode.window.showWarningMessage("OpenCode: Manager unavailable")
+          return
+        }
+        await vscode.window
+          .withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: "OpenCode: Restarting server...",
+              cancellable: false,
+            },
+            async () => {
+              await manager.stop()
+              await manager.start()
+            },
+          )
+          .then(
+            () => vscode.window.showInformationMessage("OpenCode: Server restarted"),
+            (err) => vscode.window.showErrorMessage(`OpenCode: Restart failed - ${errMsg(err)}`),
+          )
       },
     },
     {
       id: "opencode-web.stop",
       handler: async () => {
-        await vscode.window.showInformationMessage("Not implemented yet")
+        const manager = opts.manager
+        if (!manager) {
+          await vscode.window.showWarningMessage("OpenCode: Manager unavailable")
+          return
+        }
+        await manager.stop().then(
+          () => vscode.window.showInformationMessage("OpenCode: Server stopped"),
+          (err) => vscode.window.showErrorMessage(`OpenCode: Stop failed - ${errMsg(err)}`),
+        )
       },
     },
     {
       id: "opencode-web.showOutput",
-      handler: async () => {
-        await vscode.window.showInformationMessage("Not implemented yet")
+      handler: () => {
+        opts.output?.show()
       },
     },
     {

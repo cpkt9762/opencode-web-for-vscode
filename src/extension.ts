@@ -292,11 +292,15 @@ export async function activate(context: vscode.ExtensionContext) {
     const res = await fetch(new URL("/project", url), {
       headers: { Authorization: sdk.auth },
     }).catch(() => null)
-    const list = (await res?.json().catch(() => [])) as Array<{ worktree?: string }> | null
-    return {
-      has: Array.isArray(list) && list.some((item) => item.worktree === dir),
-      url,
-    }
+    const list = (await res?.json().catch(() => [])) as Array<{ worktree?: string; id?: string }> | null
+    if (!Array.isArray(list)) return { has: false, url }
+
+    if (list.some((item) => item.worktree === dir)) return { has: true, url }
+
+    // Non-git dirs are served by opencode's singleton "global" project (worktree="/"); accept it so the SPA renders chat UI.
+    if (list.some((item) => item.id === "global")) return { has: true, url }
+
+    return { has: false, url }
   }
   const home = async (url: string) => {
     const web = vscode.workspace.getConfiguration("opencode").get<string>("webUrl")?.trim()
@@ -548,6 +552,14 @@ export async function activate(context: vscode.ExtensionContext) {
   registerCommands(context, getSdk, {
     bridge: () => bridge,
     sessions,
+    manager,
+    output,
+    getSpaUrl: () => {
+      const base = root || manager.getUrl()
+      if (!base) return undefined
+      if (!dir) return base
+      return `${base}/${slug(dir)}`
+    },
   })
 
   const retain = { webviewOptions: { retainContextWhenHidden: true } } as const
