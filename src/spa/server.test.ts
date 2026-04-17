@@ -653,6 +653,13 @@ describe("spa static fallback", () => {
       expect(script).toContain('button[aria-controls="review-panel"]')
     })
 
+    it("ships CSS selector to hide Changes tab (data-value='changes')", async () => {
+      const res = await get(spa.port, "/")
+      const script = boot(res.body)
+
+      expect(script).toContain('[data-slot="tabs-trigger-wrapper"][data-value="changes"]')
+    })
+
     it("registers a capture keydown handler and forwards ctrl+` to the VSCode terminal command", async () => {
       const res = await get(spa.port, "/")
       const env = runClipboard(boot(res.body))
@@ -662,7 +669,8 @@ describe("spa static fallback", () => {
       expect(env.styles).toEqual([
         'button[aria-controls="terminal-panel"],' +
           'button[aria-controls="file-tree-panel"],' +
-          'button[aria-controls="review-panel"] { display: none !important; }',
+          'button[aria-controls="review-panel"] { display: none !important; }' +
+          '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }',
       ])
 
       const preventDefault = vi.fn()

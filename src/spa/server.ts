@@ -218,7 +218,8 @@ const BOOTSTRAP = `<script>
       style.textContent =
         'button[aria-controls="terminal-panel"],' +
         'button[aria-controls="file-tree-panel"],' +
-        'button[aria-controls="review-panel"] { display: none !important; }'
+        'button[aria-controls="review-panel"] { display: none !important; }' +
+        '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }'
       if (document.head) {
         document.head.appendChild(style)
       } else {
