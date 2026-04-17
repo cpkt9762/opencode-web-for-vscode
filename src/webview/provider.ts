@@ -15,7 +15,11 @@ const MSG = {
   set_url: "opencode-web.setUrl",
 } as const
 
-const VSCODE_COMMANDS = new Set(["workbench.action.terminal.toggleTerminal", "workbench.view.explorer"])
+const VSCODE_COMMANDS = new Set([
+  "workbench.action.terminal.toggleTerminal",
+  "workbench.view.explorer",
+  "workbench.action.toggleSidebarVisibility",
+])
 
 function api(): VS {
   const mod = Reflect.get(globalThis, "__opencode_vscode") as VS | undefined

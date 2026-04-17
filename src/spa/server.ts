@@ -238,6 +238,7 @@ const BOOTSTRAP = `<script>
 
     var COMMANDS = {
       explorer: "workbench.view.explorer",
+      sidebar: "workbench.action.toggleSidebarVisibility",
       terminal: "workbench.action.terminal.toggleTerminal",
     }
     var BACKSLASH = String.fromCharCode(92)
@@ -286,6 +287,13 @@ const BOOTSTRAP = `<script>
             e.preventDefault()
             e.stopImmediatePropagation()
             blog("forwarded mod+backslash to VSCode explorer")
+          }
+        }
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "b" || e.key === "B")) {
+          if (forwardCommand(COMMANDS.sidebar)) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            blog("forwarded mod+b to VSCode toggleSidebar")
           }
         }
       },

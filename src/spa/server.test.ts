@@ -722,6 +722,53 @@ describe("spa static fallback", () => {
       })
     })
 
+    it("forwards mod+b to the VSCode toggleSidebarVisibility command", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+      const preventDefault = vi.fn()
+      const stopImmediatePropagation = vi.fn()
+
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: false,
+        key: "b",
+        metaKey: true,
+        preventDefault,
+        shiftKey: false,
+        stopImmediatePropagation,
+      })
+
+      expect(env.messages).toContainEqual({
+        command: "workbench.action.toggleSidebarVisibility",
+        type: "opencode.vscode.command",
+      })
+      expect(preventDefault).toHaveBeenCalledOnce()
+      expect(stopImmediatePropagation).toHaveBeenCalledOnce()
+    })
+
+    it("does not forward shift+mod+b (modifier discipline)", async () => {
+      const res = await get(spa.port, "/")
+      const env = runClipboard(boot(res.body))
+      const keydown = env.documentListeners.find((item) => item.type === "keydown" && item.capture)
+      const preventDefault = vi.fn()
+
+      keydown?.handler({
+        altKey: false,
+        ctrlKey: false,
+        key: "B",
+        metaKey: true,
+        preventDefault,
+        shiftKey: true,
+        stopImmediatePropagation: vi.fn(),
+      })
+
+      expect(env.messages).not.toContainEqual(
+        expect.objectContaining({ command: "workbench.action.toggleSidebarVisibility" }),
+      )
+      expect(preventDefault).not.toHaveBeenCalled()
+    })
+
     it("does not forward unrelated keys", async () => {
       const res = await get(spa.port, "/")
       const env = runClipboard(boot(res.body))
