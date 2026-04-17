@@ -119,8 +119,16 @@ ext:
 .PHONY: all
 all: spa ext
 
+.PHONY: spa-ready
+spa-ready:
+	@if [ -f "$(ROOT)/spa/index.html" ]; then \
+		echo ">> Reusing prebuilt SPA at $(ROOT)/spa"; \
+	else \
+		$(MAKE) spa; \
+	fi
+
 .PHONY: vsix
-vsix: spa ext
+vsix: spa-ready ext
 	@echo ">> Packaging $(VSIX)..."
 	npx vsce package --no-dependencies --out $(VSIX)
 	@echo ">> Done: $(ROOT)/$(VSIX)"
