@@ -75,7 +75,7 @@ describe("package.json", () => {
     )
   })
 
-  it("declares sidebar toggle keybinding for chat view", () => {
+  it("disables VSCode default cmd+b in chat view so SPA can handle it", () => {
     const list = pkg().contributes?.keybindings ?? []
 
     expect(list).toEqual(
@@ -83,7 +83,7 @@ describe("package.json", () => {
         expect.objectContaining({
           key: "ctrl+b",
           mac: "cmd+b",
-          command: "workbench.action.toggleSidebarVisibility",
+          command: "-workbench.action.toggleSidebarVisibility",
           when: "focusedView == opencode-web.chatView",
         }),
       ]),

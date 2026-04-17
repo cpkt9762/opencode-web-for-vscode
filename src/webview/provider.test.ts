@@ -265,18 +265,6 @@ describe("OpenCodeWebviewProvider", () => {
     expect(executeCommand).toHaveBeenCalledWith("workbench.action.terminal.toggleTerminal")
   })
 
-  it("executes toggleSidebarVisibility from webview messages", () => {
-    const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
-    const { item, state } = hook()
-    const executeCommand = vi.fn(() => Promise.resolve())
-    Reflect.set(globalThis, "__opencode_vscode", hostApi(executeCommand))
-
-    provider.resolveWebviewView(item)
-    state.msg?.({ type: "opencode.vscode.command", command: "workbench.action.toggleSidebarVisibility" })
-
-    expect(executeCommand).toHaveBeenCalledWith("workbench.action.toggleSidebarVisibility")
-  })
-
   it("ignores non-allowlisted VSCode commands from webview messages", () => {
     const provider = new OpenCodeWebviewProvider({ url: "http://localhost:4096" })
     const { item, state } = hook()

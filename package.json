@@ -197,7 +197,7 @@
       {
         "key": "ctrl+b",
         "mac": "cmd+b",
-        "command": "workbench.action.toggleSidebarVisibility",
+        "command": "-workbench.action.toggleSidebarVisibility",
         "when": "focusedView == opencode-web.chatView"
       }
     ],
