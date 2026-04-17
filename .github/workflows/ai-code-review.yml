@@ -1,0 +1,80 @@
+name: AI Code Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    if: |
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review') &&
+      contains(fromJson('["OWNER","MEMBER"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Configure OpenAI proxy
+        env:
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        run: |
+          jq -n --arg url "$OPENAI_BASE_URL" \
+            '{"$schema":"https://opencode.ai/config.json","provider":{"openai":{"options":{"baseURL":$url}}}}' \
+            > opencode.json
+
+      - name: Get PR details
+        id: pr-details
+        run: |
+          gh api /repos/${{ github.repository }}/pulls/${{ github.event.issue.number }} > pr_data.json
+          echo "title=$(jq -r .title pr_data.json)" >> $GITHUB_OUTPUT
+          echo "sha=$(jq -r .head.sha pr_data.json)" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: AI Code Review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_PERMISSION: '{ "bash": { "*": "deny", "gh*": "allow", "gh pr review*": "deny" } }'
+          PR_TITLE: ${{ steps.pr-details.outputs.title }}
+        run: |
+          PR_BODY=$(jq -r .body pr_data.json)
+          opencode run -m openai/gpt-4o "A new pull request has been created: '${PR_TITLE}'
+
+          <pr-number>
+          ${{ github.event.issue.number }}
+          </pr-number>
+
+          <pr-description>
+          $PR_BODY
+          </pr-description>
+
+          Please review all code changes in this pull request. Check for:
+          1. Code style and best practices (TypeScript, avoid 'any', prefer const, early returns)
+          2. Potential bugs or logic errors
+          3. Security concerns (especially around webview message passing)
+          4. Performance issues
+
+          Make it clear the suggestions are merely suggestions and the human can decide what to do.
+
+          Use the gh cli to create comments on specific files and lines for any issues found.
+
+          Command MUST be like this:
+          \`\`\`
+          gh api \\
+            --method POST \\
+            -H \"Accept: application/vnd.github+json\" \\
+            -H \"X-GitHub-Api-Version: 2022-11-28\" \\
+            /repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}/comments \\
+            -f 'body=[summary of issue]' -f 'commit_id=${{ steps.pr-details.outputs.sha }}' -f 'path=[path-to-file]' -F \"line=[line]\" -f 'side=RIGHT'
+          \`\`\`
+
+          Only create comments for actual issues. If the code looks good, comment on the issue using gh cli: 'lgtm' AND NOTHING ELSE."
