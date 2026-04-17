@@ -46,9 +46,9 @@ function slug(dir: string) {
   return Buffer.from(dir, "binary").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
 }
 
-function run(script: string, dir: string, data: unknown) {
+function runStorage(script: string, dir: string, seed: Record<string, string> = {}) {
   const map = new Map<string, string>()
-  if (data !== undefined) map.set("opencode.global.dat:server", JSON.stringify(data))
+  for (const [key, value] of Object.entries(seed)) map.set(key, value)
   const localStorage = {
     getItem(key: string) {
       const value = map.get(key)
@@ -131,6 +131,11 @@ function run(script: string, dir: string, data: unknown) {
 
   ;(window as typeof window & { document: typeof document }).document = document
   runInNewContext(script, ctx)
+  return map
+}
+
+function run(script: string, dir: string, data: unknown) {
+  const map = runStorage(script, dir, data === undefined ? {} : { "opencode.global.dat:server": JSON.stringify(data) })
   return JSON.parse(map.get("opencode.global.dat:server") ?? "null")
 }
 
@@ -308,6 +313,97 @@ describe("spa static fallback", () => {
 
     expect(data.projects.local).toEqual([{ worktree: dir, expanded: true }])
     expect(data.lastProject.local).toBe(dir)
+  })
+
+  // Use vm to execute the real injected bootstrap so these tests verify runtime seeding behavior,
+  // not fragile string fragments inside the embedded script.
+  describe("settings.v3 bootstrap seeding", () => {
+    function seededSettings(script: string, seed?: string) {
+      const map = runStorage(script, "/tmp/current", {
+        "opencode.global.dat:server": JSON.stringify({ list: [], projects: {}, lastProject: {} }),
+        ...(seed === undefined ? {} : { "settings.v3": seed }),
+      })
+
+      return JSON.parse(map.get("settings.v3") ?? "null")
+    }
+
+    it("seeds both tool expansion flags when settings.v3 is missing", async () => {
+      const res = await get(spa.port, "/")
+
+      expect(seededSettings(boot(res.body))).toEqual({
+        general: {
+          editToolPartsExpanded: true,
+          shellToolPartsExpanded: true,
+        },
+      })
+    })
+
+    it("preserves explicit shellToolPartsExpanded=false", async () => {
+      const res = await get(spa.port, "/")
+
+      expect(
+        seededSettings(
+          boot(res.body),
+          JSON.stringify({
+            general: { shellToolPartsExpanded: false },
+          }),
+        ),
+      ).toEqual({
+        general: {
+          editToolPartsExpanded: true,
+          shellToolPartsExpanded: false,
+        },
+      })
+    })
+
+    it("injects only missing editToolPartsExpanded when shellToolPartsExpanded already exists", async () => {
+      const res = await get(spa.port, "/")
+
+      expect(
+        seededSettings(
+          boot(res.body),
+          JSON.stringify({
+            general: { shellToolPartsExpanded: true },
+          }),
+        ),
+      ).toEqual({
+        general: {
+          editToolPartsExpanded: true,
+          shellToolPartsExpanded: true,
+        },
+      })
+    })
+
+    it("tolerates corrupt settings.v3 JSON and reseeds fresh defaults", async () => {
+      const res = await get(spa.port, "/")
+
+      expect(seededSettings(boot(res.body), "{")).toEqual({
+        general: {
+          editToolPartsExpanded: true,
+          shellToolPartsExpanded: true,
+        },
+      })
+    })
+
+    it("preserves unrelated top-level settings keys while seeding missing flags", async () => {
+      const res = await get(spa.port, "/")
+
+      expect(
+        seededSettings(
+          boot(res.body),
+          JSON.stringify({
+            appearance: { fontSize: 18 },
+            general: {},
+          }),
+        ),
+      ).toEqual({
+        appearance: { fontSize: 18 },
+        general: {
+          editToolPartsExpanded: true,
+          shellToolPartsExpanded: true,
+        },
+      })
+    })
   })
 
   it("falls back to index.html for SPA routes", async () => {

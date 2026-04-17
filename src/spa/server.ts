@@ -85,6 +85,31 @@ const BOOTSTRAP = `<script>
     localStorage.setItem(lk, JSON.stringify({review:{diffStyle:"split",panelOpened:false}}))
     blog("seeded layout (review panel closed)")
   }
+  var skey = "settings.v3"
+  var s = {}
+  var sraw = localStorage.getItem(skey)
+  if (sraw) {
+    try {
+      s = JSON.parse(sraw) || {}
+    } catch(e) {
+      blog("settings parse failed: " + e.message)
+      s = {}
+    }
+  }
+  s.general = s.general || {}
+  var seeded = false
+  if (typeof s.general.shellToolPartsExpanded !== "boolean") {
+    s.general.shellToolPartsExpanded = true
+    seeded = true
+  }
+  if (typeof s.general.editToolPartsExpanded !== "boolean") {
+    s.general.editToolPartsExpanded = true
+    seeded = true
+  }
+  if (seeded) {
+    localStorage.setItem(skey, JSON.stringify(s))
+    blog("seeded shellToolPartsExpanded=true editToolPartsExpanded=true")
+  }
   var lps = (store.lastProject && store.lastProject[sk]) || "none"
   var lpsKey = "opencode.global.dat:layout"
   var lpsRaw = localStorage.getItem(lpsKey)
