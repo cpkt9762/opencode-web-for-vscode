@@ -219,7 +219,8 @@ const BOOTSTRAP = `<script>
         'button[aria-controls="terminal-panel"],' +
         'button[aria-controls="file-tree-panel"],' +
         'button[aria-controls="review-panel"] { display: none !important; }' +
-        '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }'
+        '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }' +
+        ' [data-slot="tabs-list"]:has([data-slot="tabs-trigger-wrapper"][data-value="session"]) { display: none !important; }'
       if (document.head) {
         document.head.appendChild(style)
       } else {

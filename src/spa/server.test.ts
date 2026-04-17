@@ -660,6 +660,13 @@ describe("spa static fallback", () => {
       expect(script).toContain('[data-slot="tabs-trigger-wrapper"][data-value="changes"]')
     })
 
+    it("ships CSS selector to hide mobile tab bar via :has() when a Session trigger is present", async () => {
+      const res = await get(spa.port, "/")
+      const script = boot(res.body)
+
+      expect(script).toContain('[data-slot="tabs-list"]:has([data-slot="tabs-trigger-wrapper"][data-value="session"])')
+    })
+
     it("registers a capture keydown handler and forwards ctrl+` to the VSCode terminal command", async () => {
       const res = await get(spa.port, "/")
       const env = runClipboard(boot(res.body))
@@ -670,7 +677,8 @@ describe("spa static fallback", () => {
         'button[aria-controls="terminal-panel"],' +
           'button[aria-controls="file-tree-panel"],' +
           'button[aria-controls="review-panel"] { display: none !important; }' +
-          '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }',
+          '[data-slot="tabs-trigger-wrapper"][data-value="changes"] { display: none !important; }' +
+          ' [data-slot="tabs-list"]:has([data-slot="tabs-trigger-wrapper"][data-value="session"]) { display: none !important; }',
       ])
 
       const preventDefault = vi.fn()
