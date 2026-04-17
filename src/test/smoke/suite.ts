@@ -220,7 +220,7 @@ async function reveal(page: Page, ms = 60000) {
     const item = await icon(page)
     await item.click({ force: true }).catch(() => null)
     await page
-      .locator("iframe.webview")
+      .locator('iframe.webview[src*="extensionId=opencode.opencode-web-for-vscode"]')
       .first()
       .waitFor({ state: "visible", timeout: 5000 })
       .catch(() => null)
@@ -369,11 +369,15 @@ function add(mocha: Mocha, cfg: Cfg) {
       const win = await open(cfg, cfg.fresh)
 
       try {
-        await expect(win.page.locator("iframe.webview")).toHaveCount(0, {
+        await expect(
+          win.page.locator('iframe.webview[src*="extensionId=opencode.opencode-web-for-vscode"]'),
+        ).toHaveCount(0, {
           timeout: 10000,
         })
         const frame = await reveal(win.page)
-        await expect(win.page.locator("iframe.webview").first()).toBeVisible({
+        await expect(
+          win.page.locator('iframe.webview[src*="extensionId=opencode.opencode-web-for-vscode"]').first(),
+        ).toBeVisible({
           timeout: 60000,
         })
         const box = await frame
